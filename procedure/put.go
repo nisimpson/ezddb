@@ -1,4 +1,4 @@
-package procedures
+package procedure
 
 import (
 	"context"
@@ -25,6 +25,13 @@ func (p PutProcedure) Invoke(ctx context.Context) (*dynamodb.PutItemInput, error
 type PutModifier interface {
 	// ModifyPutItemInput is invoked when this modifier is applied to the provided input.
 	ModifyPutItemInput(context.Context, *dynamodb.PutItemInput) error
+}
+
+// PutModifier is a function that implements PutModifier.
+type PutModifierFunc modifier[dynamodb.PutItemInput]
+
+func (p PutModifierFunc) ModifyPutItemInput(ctx context.Context, input *dynamodb.PutItemInput) error {
+	return p(ctx, input)
 }
 
 // Modify adds modifying functions to the procedure, transforming the input
