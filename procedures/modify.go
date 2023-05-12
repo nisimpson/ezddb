@@ -9,7 +9,14 @@ import (
 
 type withLimit int32
 
+// ModifyQueryInput implements QueryModifier.
 func (w withLimit) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	input.Limit = w.value()
+	return nil
+}
+
+// ModifyScanInput implements ScanModifier.
+func (w withLimit) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
 	input.Limit = w.value()
 	return nil
 }
@@ -22,6 +29,8 @@ func (w withLimit) value() *int32 {
 	return aws.Int32(value)
 }
 
+// WithLimit provides an input modifier for adjusting the number of items returned on a scan or query.
+// Non-positive values are ignored.
 func WithLimit(value int) withLimit {
 	return withLimit(value)
 }
@@ -31,6 +40,7 @@ type withLastToken struct {
 	token    string
 }
 
+// ModifyQueryInput implements QueryModifier.
 func (w withLastToken) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
 	if key, err := w.provider.GetStartKey(ctx, w.token); err != nil {
 		return err
@@ -40,6 +50,18 @@ func (w withLastToken) ModifyQueryInput(ctx context.Context, input *dynamodb.Que
 	}
 }
 
+// ModifyScanInput implements ScanModifier.
+func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
+	if key, err := w.provider.GetStartKey(ctx, w.token); err != nil {
+		return err
+	} else {
+		input.ExclusiveStartKey = key
+		return nil
+	}
+}
+
+// WithLastToken creates a new input modifier for adding pagination tokens to scan or query
+// procedures.
 func WithLastToken(token string, provider StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
 }

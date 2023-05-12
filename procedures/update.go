@@ -7,20 +7,27 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// Updater implements the dynamodb Update API.
 type Updater interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
 
+// UpdateProcedure functions generate dynamodb input data given some context.
 type UpdateProcedure func(context.Context) (*dynamodb.UpdateItemInput, error)
 
+// Invoke is a wrapper around the function invocation for stylistic purposes.
 func (u UpdateProcedure) Invoke(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 	return u(ctx)
 }
 
+// UpdateModifier makes modifications to the input before the procedure is executed.
 type UpdateModifier interface {
+	// ModifyPutItemInput is invoked when this modifier is applied to the provided input.
 	ModifyUpdateItemInput(context.Context, *dynamodb.UpdateItemInput) error
 }
 
+// Modify adds modifying functions to the procedure, transforming the input
+// before it is executed.
 func (u UpdateProcedure) Modify(modifiers ...UpdateModifier) UpdateProcedure {
 	mapper := func(ctx context.Context, input *dynamodb.UpdateItemInput, mod UpdateModifier) error {
 		return mod.ModifyUpdateItemInput(ctx, input)
@@ -30,6 +37,7 @@ func (u UpdateProcedure) Modify(modifiers ...UpdateModifier) UpdateProcedure {
 	}
 }
 
+// Execute executes the procedure, returning the API result.
 func (u UpdateProcedure) Execute(ctx context.Context,
 	Updater Updater, options ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	if input, err := u.Invoke(ctx); err != nil {
@@ -39,6 +47,7 @@ func (u UpdateProcedure) Execute(ctx context.Context,
 	}
 }
 
+// ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
 func (u UpdateProcedure) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	if update, err := u.Invoke(ctx); err != nil {
 		return err
