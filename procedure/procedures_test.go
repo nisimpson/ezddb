@@ -41,12 +41,3 @@ type fixture struct {
 	t *testing.T
 	procedure.PutModifier
 }
-
-func newFixture(t *testing.T) fixture {
-	return fixture{t: t}
-}
-
-func (f fixture) withPutModifier(modifier procedure.PutModifier) fixture {
-	f.PutModifier = modifier
-	return f
-}
