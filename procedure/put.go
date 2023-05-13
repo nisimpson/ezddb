@@ -27,7 +27,7 @@ type PutModifier interface {
 	ModifyPutItemInput(context.Context, *dynamodb.PutItemInput) error
 }
 
-// PutModifier is a function that implements PutModifier.
+// PutModifierFunc is a function that implements PutModifier.
 type PutModifierFunc modifier[dynamodb.PutItemInput]
 
 func (p PutModifierFunc) ModifyPutItemInput(ctx context.Context, input *dynamodb.PutItemInput) error {
@@ -74,6 +74,10 @@ func (p PutProcedure) ModifyTransactWriteItemsInput(ctx context.Context, input *
 
 // ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
 func (p PutProcedure) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.BatchWriteItemInput) error {
+	if input.RequestItems == nil {
+		input.RequestItems = make(map[string][]types.WriteRequest)
+	}
+
 	if put, err := p.Invoke(ctx); err != nil {
 		return err
 	} else if put.TableName == nil {
@@ -81,9 +85,7 @@ func (p PutProcedure) ModifyBatchWriteItemInput(ctx context.Context, input *dyna
 	} else if requests, ok := input.RequestItems[*put.TableName]; !ok {
 		input.RequestItems[*put.TableName] = []types.WriteRequest{
 			{
-				PutRequest: &types.PutRequest{
-					Item: put.Item,
-				},
+				PutRequest: &types.PutRequest{Item: put.Item},
 			},
 		}
 	} else {

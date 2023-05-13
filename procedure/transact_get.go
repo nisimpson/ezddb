@@ -14,6 +14,13 @@ type TransactionGetter interface {
 // TransactionGetProcedure functions generate dynamodb input data given some context.
 type TransactionGetProcedure func(context.Context) (*dynamodb.TransactGetItemsInput, error)
 
+// NewGetTransaction returns a new transaction get procedure instance.
+func NewGetTransaction() TransactionGetProcedure {
+	return func(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
+		return &dynamodb.TransactGetItemsInput{}, nil
+	}
+}
+
 // Invoke is a wrapper around the function invocation for stylistic purposes.
 func (t TransactionGetProcedure) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 	return t(ctx)
@@ -24,6 +31,14 @@ type TransactionGetModifier interface {
 	// ModifyTransactGetItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactGetItemsInput(context.Context, *dynamodb.TransactGetItemsInput) error
 }
+
+// TransactionGetModifierFunc is a function that implements TransactionGetModifier.
+type TransactionGetModifierFunc modifier[dynamodb.TransactGetItemsInput]
+
+func (t TransactionGetModifierFunc) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	return t(ctx, input)
+}
+
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.

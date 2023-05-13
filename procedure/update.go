@@ -26,6 +26,13 @@ type UpdateModifier interface {
 	ModifyUpdateItemInput(context.Context, *dynamodb.UpdateItemInput) error
 }
 
+// UpdateModifierFunc is a function that implements UpdateModifier.
+type UpdateModifierFunc modifier[dynamodb.UpdateItemInput]
+
+func (u UpdateModifierFunc) ModifyUpdateItemInput(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	return u(ctx, input)
+}
+
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
 func (u UpdateProcedure) Modify(modifiers ...UpdateModifier) UpdateProcedure {

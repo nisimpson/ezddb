@@ -15,6 +15,13 @@ type TransactionWriter interface {
 // TransactionWriteProcedure functions generate dynamodb input data given some context.
 type TransactionWriteProcedure func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
 
+// NewWriteTransaction returns a new transaction write procedure instance.
+func NewWriteTransaction() TransactionWriteProcedure {
+	return func(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
+		return &dynamodb.TransactWriteItemsInput{}, nil
+	}
+}
+
 // Invoke is a wrapper around the function invocation for stylistic purposes.
 func (t TransactionWriteProcedure) Invoke(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
 	return t(ctx)
@@ -24,6 +31,13 @@ func (t TransactionWriteProcedure) Invoke(ctx context.Context) (*dynamodb.Transa
 type TransactionWriteModifier interface {
 	// ModifyTransactWriteItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactWriteItemsInput(context.Context, *dynamodb.TransactWriteItemsInput) error
+}
+
+// TransactionWriteModifierFunc is a function that implements TransactionWriteModifier.
+type TransactionWriteModifierFunc modifier[dynamodb.TransactWriteItemsInput]
+
+func (t TransactionWriteModifierFunc) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	return t(ctx, input)
 }
 
 // Modify adds modifying functions to the procedure, transforming the input

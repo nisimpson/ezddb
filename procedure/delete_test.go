@@ -5,57 +5,57 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb/procedure"
 	"github.com/stretchr/testify/assert"
 )
 
-type putter struct {
+type deleter struct {
 	fixture
-	dynamodb.PutItemOutput
-	wantInput    *dynamodb.PutItemInput
+	dynamodb.DeleteItemOutput
+	wantInput    *dynamodb.DeleteItemInput
 	returnsError bool
 }
 
-func newPutter(fixture fixture) putter {
-	return putter{fixture: fixture}
+func newDeleter(fixture fixture) deleter {
+	return deleter{fixture: fixture}
 }
 
-func (p putter) PutItem(ctx context.Context, input *dynamodb.PutItemInput, options ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+func (p deleter) DeleteItem(ctx context.Context, input *dynamodb.DeleteItemInput, options ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	if p.returnsError {
 		return nil, ErrMock
 	} else if p.wantInput != nil && !assert.EqualValues(p.t, p.wantInput, input) {
 		return nil, ErrAssertion
 	} else {
-		return &p.PutItemOutput, nil
+		return &p.DeleteItemOutput, nil
 	}
 }
 
-func (p putter) fails() putter {
+func (p deleter) fails() deleter {
 	p.returnsError = true
 	return p
 }
 
-func (t table) putCustomer(c customer) procedure.PutProcedure {
-	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
+func (t table) deleteCustomer(id string) procedure.DeleteProcedure {
+	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
 		}
-		item := must(attributevalue.MarshalMap(c))
-		return &dynamodb.PutItemInput{
+		return &dynamodb.DeleteItemInput{
 			TableName: &t.tableName,
-			Item:      item,
+			Key: map[string]types.AttributeValue{
+				"id": &types.AttributeValueMemberS{Value: "123"},
+			},
 		}, nil
 	}
 }
 
-func TestPutInvoke(t *testing.T) {
+func TestDeleteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.PutProcedure
-		wantInput dynamodb.PutItemInput
+		procedure procedure.DeleteProcedure
+		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
 	}
 
@@ -64,18 +64,17 @@ func TestPutInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
-			wantInput: dynamodb.PutItemInput{
+			procedure: table.deleteCustomer("123"),
+			wantInput: dynamodb.DeleteItemInput{
 				TableName: aws.String("customer-table"),
-				Item: map[string]types.AttributeValue{
-					"id":   &types.AttributeValueMemberS{Value: "123"},
-					"name": &types.AttributeValueMemberS{Value: "John Doe"},
+				Key: map[string]types.AttributeValue{
+					"id": &types.AttributeValueMemberS{Value: "123"},
 				},
 			},
 		},
 		{
 			name:      "returns error if procedure fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 	} {
@@ -93,11 +92,11 @@ func TestPutInvoke(t *testing.T) {
 	}
 }
 
-func TestPutExecute(t *testing.T) {
+func TestDeleteExecute(t *testing.T) {
 	type testcase struct {
 		name      string
-		putter    procedure.Putter
-		procedure procedure.PutProcedure
+		deleter   procedure.Deleter
+		procedure procedure.DeleteProcedure
 		wantErr   bool
 	}
 
@@ -106,25 +105,25 @@ func TestPutExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
-			putter:    newPutter(fixture{}),
+			procedure: table.deleteCustomer("123"),
+			deleter:   newDeleter(fixture{}),
 			wantErr:   false,
 		},
 		{
 			name:      "returns error if procedure fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
-			putter:    newPutter(fixture{}),
+			procedure: table.failsTo().deleteCustomer("123"),
+			deleter:   newDeleter(fixture{}),
 			wantErr:   true,
 		},
 		{
-			name:      "returns error if putter fails",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
-			putter:    newPutter(fixture{}).fails(),
+			name:      "returns error if deleter fails",
+			procedure: table.deleteCustomer("123"),
+			deleter:   newDeleter(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.putter)
+			output, err := tc.procedure.Execute(context.TODO(), tc.deleter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -137,50 +136,49 @@ func TestPutExecute(t *testing.T) {
 	}
 }
 
-func TestPutModify(t *testing.T) {
+func TestDeleteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.PutProcedure
-		modifier  procedure.PutModifier
-		wantInput dynamodb.PutItemInput
+		procedure procedure.DeleteProcedure
+		modifier  procedure.DeleteModifier
+		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := procedure.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
-		input.Item["modified"] = &types.AttributeValueMemberBOOL{Value: true}
+	modifier := procedure.DeleteModifierFunc(func(ctx context.Context, input *dynamodb.DeleteItemInput) error {
+		input.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
 		return nil
 	})
 
-	modifierFails := procedure.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
+	modifierFails := procedure.DeleteModifierFunc(func(ctx context.Context, input *dynamodb.DeleteItemInput) error {
 		return ErrMock
 	})
 
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.deleteCustomer("123"),
 			modifier:  modifier,
-			wantInput: dynamodb.PutItemInput{
-				TableName: aws.String("customer-table"),
-				Item: map[string]types.AttributeValue{
-					"id":       &types.AttributeValueMemberS{Value: "123"},
-					"name":     &types.AttributeValueMemberS{Value: "John Doe"},
-					"modified": &types.AttributeValueMemberBOOL{Value: true},
+			wantInput: dynamodb.DeleteItemInput{
+				ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
+				TableName:              aws.String("customer-table"),
+				Key: map[string]types.AttributeValue{
+					"id": &types.AttributeValueMemberS{Value: "123"},
 				},
 			},
 			wantErr: false,
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.failsTo().deleteCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.deleteCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
@@ -199,10 +197,10 @@ func TestPutModify(t *testing.T) {
 	}
 }
 
-func TestPutModifyBatchWriteItemInput(t *testing.T) {
+func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		procedure  procedure.PutProcedure
+		procedure  procedure.DeleteProcedure
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -213,15 +211,14 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.deleteCustomer("123"),
 			wantInput: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {
 						{
-							PutRequest: &types.PutRequest{
-								Item: map[string]types.AttributeValue{
-									"id":   &types.AttributeValueMemberS{Value: "123"},
-									"name": &types.AttributeValueMemberS{Value: "John Doe"},
+							DeleteRequest: &types.DeleteRequest{
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "123"},
 								},
 							},
 						},
@@ -232,7 +229,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns the input when the input is non empty",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.deleteCustomer("123"),
 			batchwrite: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {},
@@ -242,10 +239,9 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {
 						{
-							PutRequest: &types.PutRequest{
-								Item: map[string]types.AttributeValue{
-									"id":   &types.AttributeValueMemberS{Value: "123"},
-									"name": &types.AttributeValueMemberS{Value: "John Doe"},
+							DeleteRequest: &types.DeleteRequest{
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "123"},
 								},
 							},
 						},
@@ -256,14 +252,14 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 		{
 			name: "returns error if table name is missing",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}).Modify(
-				procedure.PutModifierFunc(
-					func(ctx context.Context, input *dynamodb.PutItemInput) error {
+			procedure: table.deleteCustomer("123").Modify(
+				procedure.DeleteModifierFunc(
+					func(ctx context.Context, input *dynamodb.DeleteItemInput) error {
 						input.TableName = nil
 						return nil
 					},
@@ -286,10 +282,10 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	}
 }
 
-func TestPutModifyTransactWriteItemInput(t *testing.T) {
+func TestDeleteModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     procedure.PutProcedure
+		procedure     procedure.DeleteProcedure
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool
@@ -300,15 +296,14 @@ func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.deleteCustomer("123"),
 			wantInput: dynamodb.TransactWriteItemsInput{
 				TransactItems: []types.TransactWriteItem{
 					{
-						Put: &types.Put{
+						Delete: &types.Delete{
 							TableName: aws.String("customer-table"),
-							Item: map[string]types.AttributeValue{
-								"id":   &types.AttributeValueMemberS{Value: "123"},
-								"name": &types.AttributeValueMemberS{Value: "John Doe"},
+							Key: map[string]types.AttributeValue{
+								"id": &types.AttributeValueMemberS{Value: "123"},
 							},
 						},
 					},
@@ -318,7 +313,7 @@ func TestPutModifyTransactWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			procedure: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 	} {

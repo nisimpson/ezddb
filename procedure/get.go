@@ -27,6 +27,13 @@ type GetModifier interface {
 	ModifyGetItemInput(context.Context, *dynamodb.GetItemInput) error
 }
 
+// GetModifierFunc is a function that implements GetModifier.
+type GetModifierFunc modifier[dynamodb.GetItemInput]
+
+func (g GetModifierFunc) ModifyGetItemInput(ctx context.Context, input *dynamodb.GetItemInput) error {
+	return g(ctx, input)
+}
+
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
 func (p GetProcedure) Modify(modifiers ...GetModifier) GetProcedure {
@@ -50,6 +57,9 @@ func (g GetProcedure) Execute(ctx context.Context,
 
 // ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
 func (g GetProcedure) ModifyBatchGetItemInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
+	if input.RequestItems == nil {
+		input.RequestItems = map[string]types.KeysAndAttributes{}
+	}
 	if get, err := g.Invoke(ctx); err != nil {
 		return err
 	} else if get.TableName == nil {
@@ -61,6 +71,7 @@ func (g GetProcedure) ModifyBatchGetItemInput(ctx context.Context, input *dynamo
 		return nil
 	} else {
 		requests.Keys = append(requests.Keys, get.Key)
+		input.RequestItems[*get.TableName] = requests
 		return nil
 	}
 }

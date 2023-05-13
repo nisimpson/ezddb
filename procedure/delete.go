@@ -28,6 +28,13 @@ type DeleteModifier interface {
 	ModifyDeleteItemInput(context.Context, *dynamodb.DeleteItemInput) error
 }
 
+// DeleteModifierFunc is a function that implements DeleteModifier.
+type DeleteModifierFunc modifier[dynamodb.DeleteItemInput]
+
+func (d DeleteModifierFunc) ModifyDeleteItemInput(ctx context.Context, input *dynamodb.DeleteItemInput) error {
+	return d(ctx, input)
+}
+
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
 func (d DeleteProcedure) Modify(modifiers ...DeleteModifier) DeleteProcedure {
@@ -69,6 +76,10 @@ func (d DeleteProcedure) ModifyTransactWriteItemsInput(ctx context.Context, inpu
 
 // ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
 func (d DeleteProcedure) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.BatchWriteItemInput) error {
+	if input.RequestItems == nil {
+		input.RequestItems = make(map[string][]types.WriteRequest)
+	}
+
 	if deletes, err := d.Invoke(ctx); err != nil {
 		return err
 	} else if deletes.TableName == nil {
@@ -81,7 +92,7 @@ func (d DeleteProcedure) ModifyBatchWriteItemInput(ctx context.Context, input *d
 		}
 	} else {
 		requests = append(requests, types.WriteRequest{
-			PutRequest: &types.PutRequest{Item: deletes.Key},
+			DeleteRequest: &types.DeleteRequest{Key: deletes.Key},
 		})
 		input.RequestItems[*deletes.TableName] = requests
 	}

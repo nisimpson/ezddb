@@ -26,6 +26,14 @@ type QueryModifier interface {
 	ModifyQueryInput(context.Context, *dynamodb.QueryInput) error
 }
 
+// QueryModifierFunc is a function that implements QueryModifier.
+type QueryModifierFunc modifier[dynamodb.QueryInput]
+
+func (q QueryModifierFunc) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	return q(ctx, input)
+}
+
+
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
 func (p QueryProcedure) Modify(modifiers ...QueryModifier) QueryProcedure {
