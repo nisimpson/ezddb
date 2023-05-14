@@ -38,7 +38,7 @@ func (p transactWriter) fails() transactWriter {
 }
 
 func (t table) updateCustomers(customers ...customer) procedure.TransactionWriteProcedure {
-	transaction := procedure.NewWriteTransaction()
+	transaction := procedure.NewTransactionWriteProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.updateCustomer(c))
 	}

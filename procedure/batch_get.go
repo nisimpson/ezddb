@@ -15,8 +15,8 @@ type BatchGetter interface {
 // BatchGetProcedure functions generate dynamodb put input data given some context.
 type BatchGetProcedure func(context.Context) (*dynamodb.BatchGetItemInput, error)
 
-// NewGetBatch creates a new batch get procedure instance.
-func NewGetBatch() BatchGetProcedure {
+// NewBatchGetProcedure creates a new batch get procedure instance.
+func NewBatchGetProcedure() BatchGetProcedure {
 	return func(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 		return &dynamodb.BatchGetItemInput{
 			RequestItems: make(map[string]types.KeysAndAttributes),

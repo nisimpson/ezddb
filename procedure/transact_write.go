@@ -15,8 +15,8 @@ type TransactionWriter interface {
 // TransactionWriteProcedure functions generate dynamodb input data given some context.
 type TransactionWriteProcedure func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
 
-// NewWriteTransaction returns a new transaction write procedure instance.
-func NewWriteTransaction() TransactionWriteProcedure {
+// NewTransactionWriteProcedure returns a new transaction write procedure instance.
+func NewTransactionWriteProcedure() TransactionWriteProcedure {
 	return func(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
 		return &dynamodb.TransactWriteItemsInput{}, nil
 	}

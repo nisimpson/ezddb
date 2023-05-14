@@ -15,8 +15,8 @@ type BatchWriter interface {
 // BatchWriteProcedure functions generate dynamodb put input data given some context.
 type BatchWriteProcedure func(context.Context) (*dynamodb.BatchWriteItemInput, error)
 
-// NewWriteBatch creates a new batch write procedure instance.
-func NewWriteBatch() BatchWriteProcedure {
+// NewBatchWriteProcedure creates a new batch write procedure instance.
+func NewBatchWriteProcedure() BatchWriteProcedure {
 	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 		return &dynamodb.BatchWriteItemInput{
 			RequestItems: make(map[string][]types.WriteRequest),

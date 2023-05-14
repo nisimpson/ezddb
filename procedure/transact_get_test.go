@@ -38,7 +38,7 @@ func (p transactGetter) fails() transactGetter {
 }
 
 func (t table) getCustomers(customers ...string) procedure.TransactionGetProcedure {
-	transaction := procedure.NewGetTransaction()
+	transaction := procedure.NewTransactionGetProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.getCustomer(c))
 	}

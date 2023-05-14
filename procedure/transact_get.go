@@ -14,8 +14,8 @@ type TransactionGetter interface {
 // TransactionGetProcedure functions generate dynamodb input data given some context.
 type TransactionGetProcedure func(context.Context) (*dynamodb.TransactGetItemsInput, error)
 
-// NewGetTransaction returns a new transaction get procedure instance.
-func NewGetTransaction() TransactionGetProcedure {
+// NewTransactionGetProcedure returns a new transaction get procedure instance.
+func NewTransactionGetProcedure() TransactionGetProcedure {
 	return func(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 		return &dynamodb.TransactGetItemsInput{}, nil
 	}
