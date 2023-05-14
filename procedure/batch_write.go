@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
 // BatchWriter implements the dynamodb Batch Write API.
@@ -13,6 +14,15 @@ type BatchWriter interface {
 
 // BatchWriteProcedure functions generate dynamodb put input data given some context.
 type BatchWriteProcedure func(context.Context) (*dynamodb.BatchWriteItemInput, error)
+
+// NewWriteBatch creates a new batch write procedure instance.
+func NewWriteBatch() BatchWriteProcedure {
+	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
+		return &dynamodb.BatchWriteItemInput{
+			RequestItems: make(map[string][]types.WriteRequest),
+		}, nil
+	}
+}
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
 func (g BatchWriteProcedure) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {

@@ -4,8 +4,8 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
-
 
 // BatchGetter implements the dynamodb Batch Get API.
 type BatchGetter interface {
@@ -14,6 +14,15 @@ type BatchGetter interface {
 
 // BatchGetProcedure functions generate dynamodb put input data given some context.
 type BatchGetProcedure func(context.Context) (*dynamodb.BatchGetItemInput, error)
+
+// NewGetBatch creates a new batch get procedure instance.
+func NewGetBatch() BatchGetProcedure {
+	return func(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
+		return &dynamodb.BatchGetItemInput{
+			RequestItems: make(map[string]types.KeysAndAttributes),
+		}, nil
+	}
+}
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
 func (g BatchGetProcedure) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
