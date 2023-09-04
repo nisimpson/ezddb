@@ -37,7 +37,7 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) procedure.TransactionWriteProcedure {
+func (t table) updateCustomers(customers ...customer) procedure.TransactionWrite {
 	transaction := procedure.NewTransactionWriteProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.updateCustomer(c))
@@ -48,7 +48,7 @@ func (t table) updateCustomers(customers ...customer) procedure.TransactionWrite
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionWriteProcedure
+		procedure procedure.TransactionWrite
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
@@ -121,7 +121,7 @@ func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		transactWriter   procedure.TransactionWriter
-		procedure procedure.TransactionWriteProcedure
+		procedure procedure.TransactionWrite
 		wantErr   bool
 	}
 
@@ -164,7 +164,7 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionWriteProcedure
+		procedure procedure.TransactionWrite
 		modifier  procedure.TransactionWriteModifier
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool

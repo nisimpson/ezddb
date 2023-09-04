@@ -13,11 +13,11 @@ type Getter interface {
 	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
 }
 
-// GetProcedure functions generate dynamodb put input data given some context.
-type GetProcedure func(context.Context) (*dynamodb.GetItemInput, error)
+// Get functions generate dynamodb put input data given some context.
+type Get func(context.Context) (*dynamodb.GetItemInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (g GetProcedure) Invoke(ctx context.Context) (*dynamodb.GetItemInput, error) {
+func (g Get) Invoke(ctx context.Context) (*dynamodb.GetItemInput, error) {
 	return g(ctx)
 }
 
@@ -36,7 +36,7 @@ func (g GetModifierFunc) ModifyGetItemInput(ctx context.Context, input *dynamodb
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
-func (p GetProcedure) Modify(modifiers ...GetModifier) GetProcedure {
+func (p Get) Modify(modifiers ...GetModifier) Get {
 	mapper := func(ctx context.Context, input *dynamodb.GetItemInput, mod GetModifier) error {
 		return mod.ModifyGetItemInput(ctx, input)
 	}
@@ -46,7 +46,7 @@ func (p GetProcedure) Modify(modifiers ...GetModifier) GetProcedure {
 }
 
 // Execute executes the procedure, returning the API result.
-func (g GetProcedure) Execute(ctx context.Context,
+func (g Get) Execute(ctx context.Context,
 	getter Getter, options ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	if input, err := g.Invoke(ctx); err != nil {
 		return nil, err
@@ -56,7 +56,7 @@ func (g GetProcedure) Execute(ctx context.Context,
 }
 
 // ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
-func (g GetProcedure) ModifyBatchGetItemInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
+func (g Get) ModifyBatchGetItemInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
 	if input.RequestItems == nil {
 		input.RequestItems = map[string]types.KeysAndAttributes{}
 	}
@@ -77,7 +77,7 @@ func (g GetProcedure) ModifyBatchGetItemInput(ctx context.Context, input *dynamo
 }
 
 // ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
-func (g GetProcedure) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+func (g Get) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 	if get, err := g.Invoke(ctx); err != nil {
 		return err
 	} else {

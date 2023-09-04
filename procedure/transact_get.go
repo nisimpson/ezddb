@@ -11,18 +11,18 @@ type TransactionGetter interface {
 	TransactGetItems(context.Context, *dynamodb.TransactGetItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error)
 }
 
-// TransactionGetProcedure functions generate dynamodb input data given some context.
-type TransactionGetProcedure func(context.Context) (*dynamodb.TransactGetItemsInput, error)
+// TransactionGet functions generate dynamodb input data given some context.
+type TransactionGet func(context.Context) (*dynamodb.TransactGetItemsInput, error)
 
 // NewTransactionGetProcedure returns a new transaction get procedure instance.
-func NewTransactionGetProcedure() TransactionGetProcedure {
+func NewTransactionGetProcedure() TransactionGet {
 	return func(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 		return &dynamodb.TransactGetItemsInput{}, nil
 	}
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (t TransactionGetProcedure) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
+func (t TransactionGet) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 	return t(ctx)
 }
 
@@ -42,7 +42,7 @@ func (t TransactionGetModifierFunc) ModifyTransactGetItemsInput(ctx context.Cont
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
-func (t TransactionGetProcedure) Modify(modifiers ...TransactionGetModifier) TransactionGetProcedure {
+func (t TransactionGet) Modify(modifiers ...TransactionGetModifier) TransactionGet {
 	mapper := func(ctx context.Context, input *dynamodb.TransactGetItemsInput, mod TransactionGetModifier) error {
 		return mod.ModifyTransactGetItemsInput(ctx, input)
 	}
@@ -52,7 +52,7 @@ func (t TransactionGetProcedure) Modify(modifiers ...TransactionGetModifier) Tra
 }
 
 // Execute executes the procedure, returning the API result.
-func (t TransactionGetProcedure) Execute(ctx context.Context,
+func (t TransactionGet) Execute(ctx context.Context,
 	getter TransactionGetter, options ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {
 		return nil, err

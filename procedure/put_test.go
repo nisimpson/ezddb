@@ -38,7 +38,7 @@ func (p putter) fails() putter {
 	return p
 }
 
-func (t table) putCustomer(c customer) procedure.PutProcedure {
+func (t table) putCustomer(c customer) procedure.Put {
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
@@ -54,7 +54,7 @@ func (t table) putCustomer(c customer) procedure.PutProcedure {
 func TestPutInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.PutProcedure
+		procedure procedure.Put
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
 	}
@@ -97,7 +97,7 @@ func TestPutExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		putter    procedure.Putter
-		procedure procedure.PutProcedure
+		procedure procedure.Put
 		wantErr   bool
 	}
 
@@ -140,7 +140,7 @@ func TestPutExecute(t *testing.T) {
 func TestPutModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.PutProcedure
+		procedure procedure.Put
 		modifier  procedure.PutModifier
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
@@ -202,7 +202,7 @@ func TestPutModify(t *testing.T) {
 func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		procedure  procedure.PutProcedure
+		procedure  procedure.Put
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -289,7 +289,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     procedure.PutProcedure
+		procedure     procedure.Put
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

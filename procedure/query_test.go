@@ -37,7 +37,7 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) procedure.QueryProcedure {
+func (t table) queryCustomerName(name string) procedure.Query {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
@@ -58,7 +58,7 @@ func (t table) queryCustomerName(name string) procedure.QueryProcedure {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.QueryProcedure
+		procedure procedure.Query
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -104,7 +104,7 @@ func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		querier   procedure.Querier
-		procedure procedure.QueryProcedure
+		procedure procedure.Query
 		wantErr   bool
 	}
 
@@ -147,7 +147,7 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.QueryProcedure
+		procedure procedure.Query
 		modifier  procedure.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool

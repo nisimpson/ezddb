@@ -29,9 +29,9 @@ func (w withLimit) value() *int32 {
 	return aws.Int32(value)
 }
 
-// WithLimit provides an input modifier for adjusting the number of items returned on a scan or query.
+// ModifyWithLimit provides an input modifier for adjusting the number of items returned on a scan or query.
 // Non-positive values are ignored.
-func WithLimit(value int) withLimit {
+func ModifyWithLimit(value int) withLimit {
 	return withLimit(value)
 }
 
@@ -60,9 +60,9 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 	}
 }
 
-// WithLastToken creates a new input modifier for adding pagination tokens to scan or query
+// ModifyWithLastToken creates a new input modifier for adding pagination tokens to scan or query
 // procedure.
-func WithLastToken(token string, provider StartKeyProvider) withLastToken {
+func ModifyWithLastToken(token string, provider StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
 }
 

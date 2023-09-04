@@ -18,7 +18,7 @@ type getter struct {
 	returnsError bool
 }
 
-func newgetter(fixture fixture) getter {
+func newGetter(fixture fixture) getter {
 	return getter{fixture: fixture}
 }
 
@@ -37,7 +37,7 @@ func (p getter) fails() getter {
 	return p
 }
 
-func (t table) getCustomer(id string) procedure.GetProcedure {
+func (t table) getCustomer(id string) procedure.Get {
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
@@ -54,7 +54,7 @@ func (t table) getCustomer(id string) procedure.GetProcedure {
 func TestGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.GetProcedure
+		procedure procedure.Get
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
 	}
@@ -96,7 +96,7 @@ func TestGetExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		getter    procedure.Getter
-		procedure procedure.GetProcedure
+		procedure procedure.Get
 		wantErr   bool
 	}
 
@@ -106,19 +106,19 @@ func TestGetExecute(t *testing.T) {
 		{
 			name:      "returns the output successfully",
 			procedure: table.getCustomer("123"),
-			getter:    newgetter(fixture{}),
+			getter:    newGetter(fixture{}),
 			wantErr:   false,
 		},
 		{
 			name:      "returns error if procedure fails",
 			procedure: table.failsTo().getCustomer("123"),
-			getter:    newgetter(fixture{}),
+			getter:    newGetter(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if getter fails",
 			procedure: table.getCustomer("123"),
-			getter:    newgetter(fixture{}).fails(),
+			getter:    newGetter(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
@@ -139,7 +139,7 @@ func TestGetExecute(t *testing.T) {
 func TestGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.GetProcedure
+		procedure procedure.Get
 		modifier  procedure.GetModifier
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
@@ -200,7 +200,7 @@ func TestGetModify(t *testing.T) {
 func TestGetModifyBatchGetItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		procedure  procedure.GetProcedure
+		procedure  procedure.Get
 		batchget dynamodb.BatchGetItemInput
 		wantInput  dynamodb.BatchGetItemInput
 		wantErr    bool
@@ -281,7 +281,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 func TestGetModifyTransactGetItemInput(t *testing.T) {
 	type testcase struct {
 		name        string
-		procedure   procedure.GetProcedure
+		procedure   procedure.Get
 		transactGet dynamodb.TransactGetItemsInput
 		wantInput   dynamodb.TransactGetItemsInput
 		wantErr     bool

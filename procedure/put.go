@@ -13,11 +13,11 @@ type Putter interface {
 	PutItem(context.Context, *dynamodb.PutItemInput, ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
 }
 
-// PutProcedure functions generate dynamodb put input data given some context.
-type PutProcedure func(context.Context) (*dynamodb.PutItemInput, error)
+// Put functions generate dynamodb put input data given some context.
+type Put func(context.Context) (*dynamodb.PutItemInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (p PutProcedure) Invoke(ctx context.Context) (*dynamodb.PutItemInput, error) {
+func (p Put) Invoke(ctx context.Context) (*dynamodb.PutItemInput, error) {
 	return p(ctx)
 }
 
@@ -36,7 +36,7 @@ func (p PutModifierFunc) ModifyPutItemInput(ctx context.Context, input *dynamodb
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
-func (p PutProcedure) Modify(modifiers ...PutModifier) PutProcedure {
+func (p Put) Modify(modifiers ...PutModifier) Put {
 	mapper := func(ctx context.Context, input *dynamodb.PutItemInput, mod PutModifier) error {
 		return mod.ModifyPutItemInput(ctx, input)
 	}
@@ -46,7 +46,7 @@ func (p PutProcedure) Modify(modifiers ...PutModifier) PutProcedure {
 }
 
 // Execute executes the procedure, returning the API result.
-func (p PutProcedure) Execute(ctx context.Context, putter Putter, options ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+func (p Put) Execute(ctx context.Context, putter Putter, options ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
 	} else {
@@ -55,7 +55,7 @@ func (p PutProcedure) Execute(ctx context.Context, putter Putter, options ...fun
 }
 
 // ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
-func (p PutProcedure) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+func (p Put) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	if puts, err := p.Invoke(ctx); err != nil {
 		return err
 	} else {
@@ -73,7 +73,7 @@ func (p PutProcedure) ModifyTransactWriteItemsInput(ctx context.Context, input *
 }
 
 // ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
-func (p PutProcedure) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.BatchWriteItemInput) error {
+func (p Put) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.BatchWriteItemInput) error {
 	if input.RequestItems == nil {
 		input.RequestItems = make(map[string][]types.WriteRequest)
 	}

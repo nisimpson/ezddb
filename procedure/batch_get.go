@@ -12,11 +12,11 @@ type BatchGetter interface {
 	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
 }
 
-// BatchGetProcedure functions generate dynamodb put input data given some context.
-type BatchGetProcedure func(context.Context) (*dynamodb.BatchGetItemInput, error)
+// BatchGet functions generate dynamodb put input data given some context.
+type BatchGet func(context.Context) (*dynamodb.BatchGetItemInput, error)
 
 // NewBatchGetProcedure creates a new batch get procedure instance.
-func NewBatchGetProcedure() BatchGetProcedure {
+func NewBatchGetProcedure() BatchGet {
 	return func(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 		return &dynamodb.BatchGetItemInput{
 			RequestItems: make(map[string]types.KeysAndAttributes),
@@ -25,7 +25,7 @@ func NewBatchGetProcedure() BatchGetProcedure {
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (g BatchGetProcedure) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
+func (g BatchGet) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 	return g(ctx)
 }
 
@@ -37,7 +37,7 @@ type BatchGetModifier interface {
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
-func (b BatchGetProcedure) Modify(modifiers ...BatchGetModifier) BatchGetProcedure {
+func (b BatchGet) Modify(modifiers ...BatchGetModifier) BatchGet {
 	mapper := func(ctx context.Context, input *dynamodb.BatchGetItemInput, mod BatchGetModifier) error {
 		return mod.ModifyBatchGetItemInput(ctx, input)
 	}
@@ -47,7 +47,7 @@ func (b BatchGetProcedure) Modify(modifiers ...BatchGetModifier) BatchGetProcedu
 }
 
 // Execute executes the procedure, returning the API result.
-func (b BatchGetProcedure) Execute(ctx context.Context,
+func (b BatchGet) Execute(ctx context.Context,
 	getter BatchGetter, options ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err

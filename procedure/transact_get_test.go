@@ -37,7 +37,7 @@ func (p transactGetter) fails() transactGetter {
 	return p
 }
 
-func (t table) getCustomers(customers ...string) procedure.TransactionGetProcedure {
+func (t table) getCustomers(customers ...string) procedure.TransactionGet {
 	transaction := procedure.NewTransactionGetProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.getCustomer(c))
@@ -48,7 +48,7 @@ func (t table) getCustomers(customers ...string) procedure.TransactionGetProcedu
 func TestTransactionGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionGetProcedure
+		procedure procedure.TransactionGet
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
@@ -104,7 +104,7 @@ func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactGetter procedure.TransactionGetter
-		procedure      procedure.TransactionGetProcedure
+		procedure      procedure.TransactionGet
 		wantErr        bool
 	}
 
@@ -147,7 +147,7 @@ func TestTransactionGetExecute(t *testing.T) {
 func TestTransactionGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionGetProcedure
+		procedure procedure.TransactionGet
 		modifier  procedure.TransactionGetModifier
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool

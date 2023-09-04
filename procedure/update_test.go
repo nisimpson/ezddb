@@ -37,7 +37,7 @@ func (p updater) fails() updater {
 	return p
 }
 
-func (t table) updateCustomer(c customer) procedure.UpdateProcedure {
+func (t table) updateCustomer(c customer) procedure.Update {
 	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
@@ -61,7 +61,7 @@ func (t table) updateCustomer(c customer) procedure.UpdateProcedure {
 func TestUpdateInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.UpdateProcedure
+		procedure procedure.Update
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
@@ -110,7 +110,7 @@ func TestUpdateExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		updater   procedure.Updater
-		procedure procedure.UpdateProcedure
+		procedure procedure.Update
 		wantErr   bool
 	}
 
@@ -153,7 +153,7 @@ func TestUpdateExecute(t *testing.T) {
 func TestUpdateModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.UpdateProcedure
+		procedure procedure.Update
 		modifier  procedure.UpdateModifier
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
@@ -221,7 +221,7 @@ func TestUpdateModify(t *testing.T) {
 func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     procedure.UpdateProcedure
+		procedure     procedure.Update
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

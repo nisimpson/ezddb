@@ -11,11 +11,11 @@ type Querier interface {
 	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-// QueryProcedure functions generate dynamodb input data given some context.
-type QueryProcedure func(context.Context) (*dynamodb.QueryInput, error)
+// Query functions generate dynamodb input data given some context.
+type Query func(context.Context) (*dynamodb.QueryInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (q QueryProcedure) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
+func (q Query) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
 	return q(ctx)
 }
 
@@ -36,7 +36,7 @@ func (q QueryModifierFunc) ModifyQueryInput(ctx context.Context, input *dynamodb
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
-func (p QueryProcedure) Modify(modifiers ...QueryModifier) QueryProcedure {
+func (p Query) Modify(modifiers ...QueryModifier) Query {
 	mapper := func(ctx context.Context, input *dynamodb.QueryInput, mod QueryModifier) error {
 		return mod.ModifyQueryInput(ctx, input)
 	}
@@ -46,7 +46,7 @@ func (p QueryProcedure) Modify(modifiers ...QueryModifier) QueryProcedure {
 }
 
 // Execute executes the procedure, returning the API result.
-func (p QueryProcedure) Execute(ctx context.Context,
+func (p Query) Execute(ctx context.Context,
 	querier Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (p QueryProcedure) Execute(ctx context.Context,
 // WithPagination creates a new procedure that exhastively retrieves items from the
 // database using the initial procedure. Use the callback to access data from each
 // response.
-func (p QueryProcedure) WithPagination(callback PageQueryCallback) QueryExecutor {
+func (p Query) WithPagination(callback PageQueryCallback) QueryExecutor {
 	return func(ctx context.Context, q Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {
