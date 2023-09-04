@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/procedure"
 	"github.com/stretchr/testify/assert"
 )
@@ -96,7 +97,7 @@ func TestPutInvoke(t *testing.T) {
 func TestPutExecute(t *testing.T) {
 	type testcase struct {
 		name      string
-		putter    procedure.Putter
+		putter    ezddb.Putter
 		procedure procedure.Put
 		wantErr   bool
 	}

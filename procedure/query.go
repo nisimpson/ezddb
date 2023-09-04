@@ -4,12 +4,8 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/nisimpson/ezddb"
 )
-
-// Querier implements the dynamodb Query API.
-type Querier interface {
-	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
-}
 
 // Query functions generate dynamodb input data given some context.
 type Query func(context.Context) (*dynamodb.QueryInput, error)
@@ -47,7 +43,7 @@ func (p Query) Modify(modifiers ...QueryModifier) Query {
 
 // Execute executes the procedure, returning the API result.
 func (p Query) Execute(ctx context.Context,
-	querier Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	querier ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
 	} else {
@@ -59,7 +55,7 @@ func (p Query) Execute(ctx context.Context,
 // database using the initial procedure. Use the callback to access data from each
 // response.
 func (p Query) WithPagination(callback PageQueryCallback) QueryExecutor {
-	return func(ctx context.Context, q Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+	return func(ctx context.Context, q ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {
 			return nil, err
@@ -84,9 +80,9 @@ func (p Query) WithPagination(callback PageQueryCallback) QueryExecutor {
 type PageQueryCallback = func(context.Context, *dynamodb.QueryOutput) bool
 
 // QueryExecutor functions execute the dynamoDB query items API.
-type QueryExecutor func(context.Context, Querier, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
+type QueryExecutor func(context.Context, ezddb.Querier, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 
 // Execute invokes the query items API using the provided querier and options.
-func (q QueryExecutor) Execute(ctx context.Context, querier Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
+func (q QueryExecutor) Execute(ctx context.Context, querier ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	return q(ctx, querier, options...)
 }

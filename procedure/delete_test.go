@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/procedure"
 	"github.com/stretchr/testify/assert"
 )
@@ -95,7 +96,7 @@ func TestDeleteInvoke(t *testing.T) {
 func TestDeleteExecute(t *testing.T) {
 	type testcase struct {
 		name      string
-		deleter   procedure.Deleter
+		deleter   ezddb.Deleter
 		procedure procedure.Delete
 		wantErr   bool
 	}

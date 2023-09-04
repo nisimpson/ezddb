@@ -2,6 +2,8 @@ package procedure
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 )
@@ -59,4 +61,76 @@ func (t TransactionWrite) Execute(ctx context.Context,
 	} else {
 		return writer.TransactWriteItems(ctx, input, options...)
 	}
+}
+
+type MultiTransactionWrite []TransactionWrite
+
+func (m MultiTransactionWrite) Invoke(ctx context.Context) ([]*dynamodb.TransactWriteItemsInput, error) {
+	inputs := make([]*dynamodb.TransactWriteItemsInput, 0, len(m))
+	for _, fn := range m {
+		if input, err := fn.Invoke(ctx); err != nil {
+			return nil, err
+		} else {
+			inputs = append(inputs, input)
+		}
+	}
+	return inputs, nil
+}
+
+func (m MultiTransactionWrite) Execute(ctx context.Context,
+	writer TransactionWriter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactWriteItemsOutput, error) {
+	outputs := make([]*dynamodb.TransactWriteItemsOutput, 0)
+	errs := make([]error, 0)
+
+	for _, proc := range m {
+		out, err := proc.Execute(ctx, writer, options...)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		outputs = append(outputs, out)
+	}
+
+	if len(errs) > 0 {
+		return outputs, errors.Join(errs...)
+	}
+
+	return outputs, nil
+}
+
+type MultiTransactionWriteResult struct {
+	awaiter *sync.WaitGroup
+	outputs []*dynamodb.TransactWriteItemsOutput
+	errors  []error
+}
+
+func (m *MultiTransactionWriteResult) Wait() ([]*dynamodb.TransactWriteItemsOutput, error) {
+	m.awaiter.Wait()
+	if len(m.errors) > 0 {
+		return nil, errors.Join(m.errors...)
+	}
+	return m.outputs, nil
+}
+
+func (m MultiTransactionWrite) ExecuteAsync(ctx context.Context,
+	writer TransactionWriter, options ...func(*dynamodb.Options)) *MultiTransactionWriteResult {
+
+	runner := func(proc TransactionWrite, result *MultiTransactionWriteResult) {
+		defer result.awaiter.Done()
+		output, err := proc.Execute(ctx, writer, options...)
+		if err != nil {
+			result.errors = append(result.errors, err)
+		} else {
+			result.outputs = append(result.outputs, output)
+		}
+	}
+
+	result := &MultiTransactionWriteResult{}
+
+	for _, proc := range m {
+		result.awaiter.Add(1)
+		go runner(proc, result)
+	}
+
+	return result
 }

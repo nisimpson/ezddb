@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/procedure"
 	"github.com/stretchr/testify/assert"
 )
@@ -95,7 +96,7 @@ func TestGetInvoke(t *testing.T) {
 func TestGetExecute(t *testing.T) {
 	type testcase struct {
 		name      string
-		getter    procedure.Getter
+		getter    ezddb.Getter
 		procedure procedure.Get
 		wantErr   bool
 	}

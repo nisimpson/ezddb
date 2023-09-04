@@ -5,44 +5,46 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
 
-type withLimit int32
+type limitModifier int32
+
+// Limit provides an input modifier for adjusting the number of items returned on a scan or query.
+// Non-positive values are ignored.
+func Limit(value int) limitModifier {
+	return limitModifier(value)
+}
 
 // ModifyQueryInput implements QueryModifier.
-func (w withLimit) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
-	input.Limit = w.value()
+func (l limitModifier) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	input.Limit = l.value()
 	return nil
 }
 
 // ModifyScanInput implements ScanModifier.
-func (w withLimit) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
-	input.Limit = w.value()
+func (l limitModifier) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
+	input.Limit = l.value()
 	return nil
 }
 
-func (w withLimit) value() *int32 {
-	value := int32(w)
+func (l limitModifier) value() *int32 {
+	value := int32(l)
 	if value <= 0 {
 		return nil
 	}
 	return aws.Int32(value)
 }
 
-// ModifyWithLimit provides an input modifier for adjusting the number of items returned on a scan or query.
-// Non-positive values are ignored.
-func ModifyWithLimit(value int) withLimit {
-	return withLimit(value)
-}
-
-type withLastToken struct {
+type startTokenModifier struct {
 	provider StartKeyProvider
 	token    string
 }
 
 // ModifyQueryInput implements QueryModifier.
-func (w withLastToken) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
-	if key, err := w.provider.GetStartKey(ctx, w.token); err != nil {
+func (s startTokenModifier) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	if key, err := s.provider.GetStartKey(ctx, s.token); err != nil {
 		return err
 	} else {
 		input.ExclusiveStartKey = key
@@ -51,8 +53,8 @@ func (w withLastToken) ModifyQueryInput(ctx context.Context, input *dynamodb.Que
 }
 
 // ModifyScanInput implements ScanModifier.
-func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
-	if key, err := w.provider.GetStartKey(ctx, w.token); err != nil {
+func (s startTokenModifier) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
+	if key, err := s.provider.GetStartKey(ctx, s.token); err != nil {
 		return err
 	} else {
 		input.ExclusiveStartKey = key
@@ -60,10 +62,28 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 	}
 }
 
-// ModifyWithLastToken creates a new input modifier for adding pagination tokens to scan or query
+// StartToken creates a new input modifier for adding pagination tokens to scan or query
 // procedure.
-func ModifyWithLastToken(token string, provider StartKeyProvider) withLastToken {
-	return withLastToken{token: token, provider: provider}
+func StartToken(token string, provider StartKeyProvider) startTokenModifier {
+	return startTokenModifier{token: token, provider: provider}
+}
+
+type startKeyModifier map[string]types.AttributeValue
+
+// StartKey creates a new input modifier for adding pagination tokens to scan or query
+// procedure.
+func StartKey(item ezddb.Item) startKeyModifier {
+	return startKeyModifier(item)
+}
+
+func (s startKeyModifier) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
+	input.ExclusiveStartKey = s
+	return nil
+}
+
+func (s startKeyModifier) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	input.ExclusiveStartKey = s
+	return nil
 }
 
 type invoker[T any] interface {

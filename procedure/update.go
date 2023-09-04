@@ -3,14 +3,10 @@ package procedure
 import (
 	"context"
 
+	"github.com/nisimpson/ezddb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
-
-// Updater implements the dynamodb Update API.
-type Updater interface {
-	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
-}
 
 // Update functions generate dynamodb input data given some context.
 type Update func(context.Context) (*dynamodb.UpdateItemInput, error)
@@ -46,7 +42,7 @@ func (u Update) Modify(modifiers ...UpdateModifier) Update {
 
 // Execute executes the procedure, returning the API result.
 func (u Update) Execute(ctx context.Context,
-	Updater Updater, options ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	Updater ezddb.Updater, options ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	if input, err := u.Invoke(ctx); err != nil {
 		return nil, err
 	} else {
