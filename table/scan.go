@@ -37,6 +37,11 @@ func (s ScanBuilder) StartFromToken(token string) ScanBuilder {
 	return s
 }
 
+func (s ScanBuilder) Limit(count int) ScanBuilder {
+	s.limit = procedure.Limit(count)
+	return s
+}
+
 func (q ScanBuilder) Build() procedure.Scan {
 	proc := procedure.Scan(func(ctx context.Context) (*dynamodb.ScanInput, error) {
 		var expr expression.Expression
@@ -114,7 +119,7 @@ func (s ScanBuilder) Or(attribute string, expr FilterExpression) ScanBuilder {
 	return s
 }
 
-func (s ScanBuilder) Not(attribute string, expr FilterExpression) ScanBuilder {
+func (s ScanBuilder) AndNot(attribute string, expr FilterExpression) ScanBuilder {
 	var cond expression.ConditionBuilder
 	if s.filterCondition.IsSet() {
 		cond = s.filterCondition.And(expr.filter(attribute).Not())
@@ -124,6 +129,18 @@ func (s ScanBuilder) Not(attribute string, expr FilterExpression) ScanBuilder {
 	s.filterCondition = cond
 	return s
 }
+
+func (s ScanBuilder) OrNot(attribute string, expr FilterExpression) ScanBuilder {
+	var cond expression.ConditionBuilder
+	if s.filterCondition.IsSet() {
+		cond = s.filterCondition.Or(expr.filter(attribute).Not())
+	} else {
+		cond = expr.filter(attribute).Not()
+	}
+	s.filterCondition = cond
+	return s
+}
+
 
 type ScanResult struct {
 	scan    ScanBuilder
@@ -151,7 +168,7 @@ func (s ScanResult) HasNext() bool {
 	return true
 }
 
-func (s ScanResult) Values(out any) error {
+func (s ScanResult) UnmarshalItems(out any) error {
 	if s.error != nil {
 		return s.error
 	}

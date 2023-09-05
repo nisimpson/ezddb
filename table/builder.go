@@ -89,6 +89,13 @@ func (b Builder) Query(attribute string, value any) QueryBuilder {
 	}
 }
 
+func (b Builder) Check(key ItemKeyProvider) ConditionCheckBuilder {
+	return ConditionCheckBuilder{
+		builder: b,
+		key:     key,
+	}
+}
+
 type mapMarshaler = func(item any) (ezddb.Item, error)
 
 type mapUnmarshaler = func(item ezddb.Item, out any) error

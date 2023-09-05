@@ -45,6 +45,11 @@ func (q QueryBuilder) StartFromToken(token string) QueryBuilder {
 	return q
 }
 
+func (q QueryBuilder) Limit(count int) QueryBuilder {
+	q.limit = procedure.Limit(count)
+	return q
+}
+
 func (q QueryBuilder) Build() procedure.Query {
 	proc := procedure.Query(func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		var expr expression.Expression
@@ -103,8 +108,8 @@ func (q QueryBuilder) Execute(ctx context.Context, querier ezddb.Querier) QueryR
 	}
 }
 
-func (q QueryBuilder) Range(attribute string, expr KeyExpression) QueryBuilder {
-	q.rangeKeyCondition = expr(attribute)
+func (q QueryBuilder) Range(attribute string, expr RangeExpression) QueryBuilder {
+	q.rangeKeyCondition = expr.key(attribute)
 	return q
 }
 
@@ -171,7 +176,7 @@ func (q QueryResult) HasNext() bool {
 	return true
 }
 
-func (q QueryResult) Values(out any) error {
+func (q QueryResult) UnmarshalItems(out any) error {
 	if q.error != nil {
 		return q.error
 	}

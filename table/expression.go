@@ -13,50 +13,8 @@ type keytype interface {
 	number | string
 }
 
-type KeyExpression func(attribute string) expression.KeyConditionBuilder
-
-func KeyEquals[T keytype](value T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyEqual(expression.Key(attribute), expression.Value(value))
-	}
-}
-
-func KeyBeginsWith(value string) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyBeginsWith(expression.Key(attribute), value)
-	}
-}
-
-func KeyLessThan[T keytype](value T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyLessThan(expression.Key(attribute), expression.Value(value))
-	}
-}
-
-func KeyLessThanEqual[T keytype](value T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyLessThanEqual(expression.Key(attribute), expression.Value(value))
-	}
-}
-
-func KeyGreaterThan[T keytype](value T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyGreaterThan(expression.Key(attribute), expression.Value(value))
-	}
-}
-
-func KeyGreaterThanEqual[T keytype](value T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyGreaterThanEqual(expression.Key(attribute), expression.Value(value))
-	}
-}
-
-func KeyBetween[T keytype](lower, upper T) KeyExpression {
-	return func(attribute string) expression.KeyConditionBuilder {
-		return expression.KeyBetween(expression.Key(attribute),
-			expression.Value(lower),
-			expression.Value(upper))
-	}
+type RangeExpression interface {
+	key(attribute string) expression.KeyConditionBuilder
 }
 
 type FilterExpression interface {
@@ -73,32 +31,42 @@ func (fn FilterExpressionFunc) filter(attribute string) expression.ConditionBuil
 	return fn(attribute)
 }
 
-func AttributeNotExists() FilterExpressionFunc {
+func NotExists() FilterExpressionFunc {
 	return func(attribute string) expression.ConditionBuilder {
 		return expression.AttributeNotExists(expression.Name(attribute))
 	}
 }
 
-func AttributeExists() FilterExpressionFunc {
+func Exists() FilterExpressionFunc {
 	return func(attribute string) expression.ConditionBuilder {
 		return expression.AttributeExists(expression.Name(attribute))
 	}
 }
 
-type EqualsExpression struct {
+type EqualsExpression[T any] struct {
 	value any
 }
 
-func (e EqualsExpression) filter(attribute string) expression.ConditionBuilder {
+func (e EqualsExpression[T]) filter(attribute string) expression.ConditionBuilder {
 	return expression.Equal(expression.Name(attribute), expression.Value(e.value))
 }
 
-func (e EqualsExpression) size(attribute string) expression.ConditionBuilder {
+func (e EqualsExpression[T]) size(attribute string) expression.ConditionBuilder {
 	return expression.Size(expression.Name(attribute)).Equal(expression.Value(e.value))
 }
 
-func Equals(value any) EqualsExpression {
-	return EqualsExpression{value: value}
+func Equals(value any) EqualsExpression[any] {
+	return EqualsExpression[any]{value: value}
+}
+
+type KeyEqualsExpression[T keytype] EqualsExpression[T]
+
+func (k KeyEqualsExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyEqual(expression.Key(attribute), expression.Value(k.value))
+}
+
+func KeyEquals[T keytype](value T) KeyEqualsExpression[T] {
+	return KeyEqualsExpression[T]{value: value}
 }
 
 type NotEqualsExpression struct {
@@ -117,14 +85,28 @@ func NotEquals(value any) NotEqualsExpression {
 	return NotEqualsExpression{value: value}
 }
 
-func BeginsWith(value string) FilterExpressionFunc {
-	return func(attribute string) expression.ConditionBuilder {
-		return expression.BeginsWith(expression.Name(attribute), value)
-	}
+type BeginsWithExpression struct {
+	value string
+}
+
+func (b BeginsWithExpression) filter(attribute string) expression.ConditionBuilder {
+	return expression.BeginsWith(expression.Name(attribute), b.value)
+}
+
+func (b BeginsWithExpression) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyBeginsWith(expression.Key(attribute), b.value)
+}
+
+func BeginsWith(value string) BeginsWithExpression {
+	return BeginsWithExpression{value: value}
 }
 
 type LessThanExpression[T keytype] struct {
 	value T
+}
+
+func (l LessThanExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyLessThan(expression.Key(attribute), expression.Value(l.value))
 }
 
 func (l LessThanExpression[T]) filter(attribute string) expression.ConditionBuilder {
@@ -146,6 +128,10 @@ type LessThanEqualExpression[T keytype] struct {
 	value T
 }
 
+func (l LessThanEqualExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyLessThanEqual(expression.Key(attribute), expression.Value(l.value))
+}
+
 func (l LessThanEqualExpression[T]) filter(attribute string) expression.ConditionBuilder {
 	return expression.LessThanEqual(expression.Name(attribute), expression.Value(l.value))
 }
@@ -162,6 +148,10 @@ func LessThanEqual[T keytype](value T) LessThanEqualExpression[T] {
 
 type GreaterThanExpression[T keytype] struct {
 	value T
+}
+
+func (g GreaterThanExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyGreaterThan(expression.Key(attribute), expression.Value(g.value))
 }
 
 func (g GreaterThanExpression[T]) filter(attribute string) expression.ConditionBuilder {
@@ -181,6 +171,10 @@ type GreaterThanEqualExpression[T keytype] struct {
 	value T
 }
 
+func (g GreaterThanEqualExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyGreaterThanEqual(expression.Key(attribute), expression.Value(g.value))
+}
+
 func (g GreaterThanEqualExpression[T]) filter(attribute string) expression.ConditionBuilder {
 	return expression.GreaterThanEqual(expression.Name(attribute), expression.Value(g.value))
 }
@@ -197,6 +191,12 @@ func GreaterThanEqual[T keytype](value T) GreaterThanEqualExpression[T] {
 type BetweenExpression[T keytype] struct {
 	lower T
 	upper T
+}
+
+func (b BetweenExpression[T]) key(attribute string) expression.KeyConditionBuilder {
+	return expression.KeyBetween(expression.Key(attribute),
+		expression.Value(b.lower),
+		expression.Value(b.upper))
 }
 
 func (b BetweenExpression[T]) filter(attribute string) expression.ConditionBuilder {

@@ -1,0 +1,8 @@
+with-expecter: true
+packages:
+  github.com/nisimpson/ezddb:
+    config:
+      all: true
+      disable-version-string: true
+      outpkg: mocks
+      dir: "internal/mocks/{{.PackagePath}}"
