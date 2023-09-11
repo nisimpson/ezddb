@@ -15,8 +15,34 @@ type PutBuilder struct {
 	builder             Builder
 }
 
-func (p PutBuilder) If(condition expression.ConditionBuilder) PutBuilder {
-	p.conditionExpression = &condition
+func (b Builder) Put(data any) PutBuilder {
+	return PutBuilder{
+		builder:             b,
+		data:                data,
+		conditionExpression: emptyConditionBuilder,
+	}
+}
+
+func (p PutBuilder) WithCondition(expr expression.ConditionBuilder) PutBuilder {
+	p.conditionExpression = &expr
+	return p
+}
+
+func (p PutBuilder) If(attribute string, expr FilterExpression) PutBuilder {
+	var cond expression.ConditionBuilder = expr.filter(attribute)
+	p.conditionExpression = &cond
+	return p
+}
+
+func (p PutBuilder) And(attribute string, expr FilterExpression) PutBuilder {
+	var cond = p.conditionExpression.And(expr.filter(attribute))
+	p.conditionExpression = &cond
+	return p
+}
+
+func (p PutBuilder) Or(attribute string, expr FilterExpression) PutBuilder {
+	var cond expression.ConditionBuilder = p.conditionExpression.Or(expr.filter(attribute))
+	p.conditionExpression = &cond
 	return p
 }
 
@@ -30,7 +56,8 @@ func (p PutBuilder) Build() procedure.Put {
 		var expr expression.Expression
 
 		if p.conditionExpression != emptyConditionBuilder {
-			expr, err = expression.NewBuilder().WithCondition(*p.conditionExpression).Build()
+			builder := expression.NewBuilder().WithCondition(*p.conditionExpression)
+			expr, err = p.builder.buildExpression(builder)
 			if err != nil {
 				return nil, err
 			}
@@ -47,6 +74,6 @@ func (p PutBuilder) Build() procedure.Put {
 }
 
 func (p PutBuilder) Execute(ctx context.Context, putter ezddb.Putter) error {
-	 _, err := p.Build().Execute(ctx, putter)
-	 return err
+	_, err := p.Build().Execute(ctx, putter)
+	return err
 }

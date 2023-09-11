@@ -17,6 +17,11 @@ type RangeExpression interface {
 	key(attribute string) expression.KeyConditionBuilder
 }
 
+type HashExpression interface {
+	RangeExpression
+	hashExpression()
+}
+
 type FilterExpression interface {
 	filter(attribute string) expression.ConditionBuilder
 }
@@ -65,8 +70,22 @@ func (k KeyEqualsExpression[T]) key(attribute string) expression.KeyConditionBui
 	return expression.KeyEqual(expression.Key(attribute), expression.Value(k.value))
 }
 
+func (k KeyEqualsExpression[T]) hashExpression() {}
+
 func KeyEquals[T keytype](value T) KeyEqualsExpression[T] {
 	return KeyEqualsExpression[T]{value: value}
+}
+
+type NotExpression struct {
+	expr FilterExpression
+}
+
+func Not(expr FilterExpression) NotExpression {
+	return NotExpression{expr: expr}
+}
+
+func (n NotExpression) filter(attribute string) expression.ConditionBuilder {
+	return n.expr.filter(attribute).Not()
 }
 
 type NotEqualsExpression struct {

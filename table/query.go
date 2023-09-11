@@ -20,6 +20,13 @@ type QueryBuilder struct {
 	scanForward       bool
 }
 
+func (b Builder) Query(attribute string, expr HashExpression) QueryBuilder {
+	return QueryBuilder{
+		builder:          b,
+		hashKeyCondition: expr.key(attribute),
+	}
+}
+
 func (q QueryBuilder) WithFilterCondition(cond expression.ConditionBuilder) QueryBuilder {
 	q.filterCondition = cond
 	return q
@@ -66,7 +73,7 @@ func (q QueryBuilder) Build() procedure.Query {
 			builder.WithFilter(q.filterCondition)
 		}
 
-		expr, err = builder.Build()
+		expr, err = q.builder.buildExpression(builder)
 		if err != nil {
 			return nil, err
 		}
@@ -114,38 +121,19 @@ func (q QueryBuilder) Range(attribute string, expr RangeExpression) QueryBuilder
 }
 
 func (q QueryBuilder) Where(attribute string, expr FilterExpression) QueryBuilder {
-	var cond expression.ConditionBuilder
-	if q.filterCondition.IsSet() {
-		cond = q.filterCondition.And(expr.filter(attribute))
-	} else {
-		cond = expr.filter(attribute)
-	}
+	var cond expression.ConditionBuilder = expr.filter(attribute)
 	q.filterCondition = cond
 	return q
 }
 
 func (q QueryBuilder) And(attribute string, expr FilterExpression) QueryBuilder {
-	return q.Where(attribute, expr)
-}
-
-func (q QueryBuilder) Or(attribute string, expr FilterExpression) QueryBuilder {
-	var cond expression.ConditionBuilder
-	if q.filterCondition.IsSet() {
-		cond = q.filterCondition.Or(expr.filter(attribute))
-	} else {
-		cond = expr.filter(attribute)
-	}
+	cond := q.filterCondition.And(expr.filter(attribute))
 	q.filterCondition = cond
 	return q
 }
 
-func (q QueryBuilder) Not(attribute string, expr FilterExpression) QueryBuilder {
-	var cond expression.ConditionBuilder
-	if q.filterCondition.IsSet() {
-		cond = q.filterCondition.And(expr.filter(attribute).Not())
-	} else {
-		cond = expr.filter(attribute).Not()
-	}
+func (q QueryBuilder) Or(attribute string, expr FilterExpression) QueryBuilder {
+	cond := q.filterCondition.Or(expr.filter(attribute))
 	q.filterCondition = cond
 	return q
 }

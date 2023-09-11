@@ -19,49 +19,71 @@ type Builder struct {
 	unmarshalList      mapListUnmarshaler
 	startKeyProvider   procedure.StartKeyProvider
 	startTokenProvider procedure.StartKeyTokenProvider
+	buildExpression    expressionBuilder
 }
 
 type ItemKeyProvider interface {
 	DynamoItemKey() ezddb.Item
 }
 
-func New(tableName string) Builder {
-	return Builder{
+func New(tableName string, options ...Option) Builder {
+	builder := Builder{
 		tableName:     tableName,
 		marshalMap:    attributevalue.MarshalMap,
 		unmarshalMap:  attributevalue.UnmarshalMap,
 		unmarshalList: attributevalue.UnmarshalListOfMaps,
+		buildExpression: func(builder expression.Builder) (expression.Expression, error) {
+			return builder.Build()
+		},
+	}
+	for _, apply := range options {
+		apply(&builder)
+	}
+	return builder
+}
+
+type Option func(*Builder)
+
+func WithMapMarshaler(marshaler mapMarshaler) Option {
+	return func(b *Builder) {
+		b.marshalMap = marshaler
 	}
 }
 
-func (b Builder) WithMapMarshaler(marshaler mapMarshaler) Builder {
-	b.marshalMap = marshaler
-	return b
+func WithMapUnmarshaler(unmarshaler mapUnmarshaler) Option {
+	return func(b *Builder) {
+		b.unmarshalMap = unmarshaler
+	}
 }
 
-func (b Builder) WithMapUnmarshaler(unmarshaler mapUnmarshaler) Builder {
-	b.unmarshalMap = unmarshaler
-	return b
+func WithMapListUnmarshaler(unmarshaler mapListUnmarshaler) Option {
+	return func(b *Builder) {
+		b.unmarshalList = unmarshaler
+	}
 }
 
-func (b Builder) WithMapListUnmarshaler(unmarshaler mapListUnmarshaler) Builder {
-	b.unmarshalList = unmarshaler
-	return b
+func WithStartKeyProvider(provider procedure.StartKeyProvider) Option {
+	return func(b *Builder) {
+		b.startKeyProvider = provider
+	}
 }
 
-func (b Builder) WithStartKeyProvider(provider procedure.StartKeyProvider) Builder {
-	b.startKeyProvider = provider
-	return b
+func WithStartTokenProvider(provider procedure.StartKeyTokenProvider) Option {
+	return func(b *Builder) {
+		b.startTokenProvider = provider
+	}
 }
 
-func (b Builder) WithStartTokenProvider(provider procedure.StartKeyTokenProvider) Builder {
-	b.startTokenProvider = provider
-	return b
+func WithExpressionBuilder(builder expressionBuilder) Option {
+	return func(b *Builder) {
+		b.buildExpression = builder
+	}
 }
 
-func (b Builder) Put(data any) PutBuilder {
-	return PutBuilder{builder: b, data: data}
+func (b Builder) TableName() string {
+	return b.tableName
 }
+
 
 func (b Builder) Get(key ItemKeyProvider) GetBuilder {
 	return GetBuilder{
@@ -82,12 +104,6 @@ func (b Builder) Delete(key ItemKeyProvider) DeleteBuilder {
 	return DeleteBuilder{builder: b, conditionBuilder: emptyConditionBuilder}
 }
 
-func (b Builder) Query(attribute string, value any) QueryBuilder {
-	return QueryBuilder{
-		builder:          b,
-		hashKeyCondition: expression.Key(attribute).Equal(expression.Value(value)),
-	}
-}
 
 func (b Builder) Check(key ItemKeyProvider) ConditionCheckBuilder {
 	return ConditionCheckBuilder{
@@ -101,3 +117,5 @@ type mapMarshaler = func(item any) (ezddb.Item, error)
 type mapUnmarshaler = func(item ezddb.Item, out any) error
 
 type mapListUnmarshaler = func(items []ezddb.Item, out any) error
+
+type expressionBuilder = func(builder expression.Builder) (expression.Expression, error)
