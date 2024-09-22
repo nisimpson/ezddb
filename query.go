@@ -1,4 +1,4 @@
-package procedure
+package ezddb
 
 import (
 	"context"
@@ -19,7 +19,6 @@ func (q QueryProcedure) Invoke(ctx context.Context) (*dynamodb.QueryInput, error
 	return q(ctx)
 }
 
-
 // QueryModifier makes modifications to the scan input before the procedure is executed.
 type QueryModifier interface {
 	// ModifyQueryInput is invoked when this modifier is applied to the provided input.
@@ -32,7 +31,6 @@ type QueryModifierFunc modifier[dynamodb.QueryInput]
 func (q QueryModifierFunc) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
 	return q(ctx, input)
 }
-
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.
@@ -56,7 +54,7 @@ func (p QueryProcedure) Execute(ctx context.Context,
 }
 
 // WithPagination creates a new procedure that exhastively retrieves items from the
-// database using the initial procedure. Use the callback to access data from each
+// database using the initial ezddb. Use the callback to access data from each
 // response.
 func (p QueryProcedure) WithPagination(callback PageQueryCallback) QueryExecutor {
 	return func(ctx context.Context, q Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {

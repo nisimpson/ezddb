@@ -1,4 +1,4 @@
-package procedure
+package ezddb
 
 import (
 	"context"
@@ -38,7 +38,6 @@ type TransactionGetModifierFunc modifier[dynamodb.TransactGetItemsInput]
 func (t TransactionGetModifierFunc) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 	return t(ctx, input)
 }
-
 
 // Modify adds modifying functions to the procedure, transforming the input
 // before it is executed.

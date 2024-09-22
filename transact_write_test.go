@@ -1,4 +1,4 @@
-package procedure_test
+package ezddb_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb/procedure"
+	"github.com/nisimpson/ezddb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,8 +37,8 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) procedure.TransactionWriteProcedure {
-	transaction := procedure.NewTransactionWriteProcedure()
+func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteProcedure {
+	transaction := ezddb.NewTransactionWriteProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.updateCustomer(c))
 	}
@@ -48,7 +48,7 @@ func (t table) updateCustomers(customers ...customer) procedure.TransactionWrite
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionWriteProcedure
+		procedure ezddb.TransactionWriteProcedure
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
@@ -57,7 +57,7 @@ func TestTransactWriteInvoke(t *testing.T) {
 
 	for _, tc := range []testcase{
 		{
-			name:      "returns the input successfully",
+			name: "returns the input successfully",
 			procedure: table.updateCustomers(
 				customer{ID: "123", Name: "John Doe"},
 				customer{ID: "345", Name: "Jane Doe"},
@@ -119,32 +119,32 @@ func TestTransactWriteInvoke(t *testing.T) {
 
 func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
-		name      string
-		transactWriter   procedure.TransactionWriter
-		procedure procedure.TransactionWriteProcedure
-		wantErr   bool
+		name           string
+		transactWriter ezddb.TransactionWriter
+		procedure      ezddb.TransactionWriteProcedure
+		wantErr        bool
 	}
 
 	table := table{tableName: "customer-table"}
 
 	for _, tc := range []testcase{
 		{
-			name:      "returns the output successfully",
-			procedure: table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
-			transactWriter:   newTransactWriter(fixture{}),
-			wantErr:   false,
+			name:           "returns the output successfully",
+			procedure:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			transactWriter: newTransactWriter(fixture{}),
+			wantErr:        false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
-			transactWriter:   newTransactWriter(fixture{}),
-			wantErr:   true,
+			name:           "returns error if procedure fails",
+			procedure:      table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			transactWriter: newTransactWriter(fixture{}),
+			wantErr:        true,
 		},
 		{
-			name:      "returns error if transactWriter fails",
-			procedure: table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
-			transactWriter:   newTransactWriter(fixture{}).fails(),
-			wantErr:   true,
+			name:           "returns error if transactWriter fails",
+			procedure:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			transactWriter: newTransactWriter(fixture{}).fails(),
+			wantErr:        true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,31 +164,31 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionWriteProcedure
-		modifier  procedure.TransactionWriteModifier
+		procedure ezddb.TransactionWriteProcedure
+		modifier  ezddb.TransactionWriteModifier
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := procedure.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifier := ezddb.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		input.ClientRequestToken = aws.String("token")
 		return nil
 	})
 
-	modifierFails := procedure.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifierFails := ezddb.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		return ErrMock
 	})
 
 	for _, tc := range []testcase{
 		{
-			name:      "returns the input successfully",
+			name: "returns the input successfully",
 			procedure: table.updateCustomers(
 				customer{ID: "123", Name: "John Doe"},
 				customer{ID: "345", Name: "Jane Doe"},
 			),
-			modifier:  modifier,
+			modifier: modifier,
 			wantInput: dynamodb.TransactWriteItemsInput{
 				ClientRequestToken: aws.String("token"),
 				TransactItems: []types.TransactWriteItem{

@@ -1,10 +1,10 @@
-package procedure_test
+package ezddb_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/nisimpson/ezddb/procedure"
+	"github.com/nisimpson/ezddb"
 )
 
 var ErrMock = errors.New("mock error")
@@ -39,5 +39,5 @@ func (t table) failsTo() table {
 
 type fixture struct {
 	t *testing.T
-	procedure.PutModifier
+	ezddb.PutModifier
 }

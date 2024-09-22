@@ -1,4 +1,4 @@
-package procedure_test
+package ezddb_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb/procedure"
+	"github.com/nisimpson/ezddb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,13 +37,13 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) procedure.QueryProcedure {
+func (t table) queryCustomerName(name string) ezddb.QueryProcedure {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		if t.procedureFails {
 			return nil, ErrMock
 		}
 		return &dynamodb.QueryInput{
-			TableName: &t.tableName,
+			TableName:              &t.tableName,
 			KeyConditionExpression: aws.String("#name = :name"),
 			ExpressionAttributeNames: map[string]string{
 				"name": *aws.String("name"),
@@ -58,7 +58,7 @@ func (t table) queryCustomerName(name string) procedure.QueryProcedure {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.QueryProcedure
+		procedure ezddb.QueryProcedure
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -70,7 +70,7 @@ func TestQueryInvoke(t *testing.T) {
 			name:      "returns the input successfully",
 			procedure: table.queryCustomerName("John Doe"),
 			wantInput: dynamodb.QueryInput{
-				TableName: aws.String("customer-table"),
+				TableName:              aws.String("customer-table"),
 				KeyConditionExpression: aws.String("#name = :name"),
 				ExpressionAttributeNames: map[string]string{
 					"name": *aws.String("name"),
@@ -103,8 +103,8 @@ func TestQueryInvoke(t *testing.T) {
 func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
-		querier   procedure.Querier
-		procedure procedure.QueryProcedure
+		querier   ezddb.Querier
+		procedure ezddb.QueryProcedure
 		wantErr   bool
 	}
 
@@ -147,20 +147,20 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.QueryProcedure
-		modifier  procedure.QueryModifier
+		procedure ezddb.QueryProcedure
+		modifier  ezddb.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := procedure.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifier := ezddb.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		input.IndexName = aws.String("query-index")
 		return nil
 	})
 
-	modifierFails := procedure.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifierFails := ezddb.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		return ErrMock
 	})
 
@@ -170,8 +170,8 @@ func TestQueryModify(t *testing.T) {
 			procedure: table.queryCustomerName("John Doe"),
 			modifier:  modifier,
 			wantInput: dynamodb.QueryInput{
-				IndexName: aws.String("query-index"),
-				TableName: aws.String("customer-table"),
+				IndexName:              aws.String("query-index"),
+				TableName:              aws.String("customer-table"),
 				KeyConditionExpression: aws.String("#name = :name"),
 				ExpressionAttributeNames: map[string]string{
 					"name": *aws.String("name"),

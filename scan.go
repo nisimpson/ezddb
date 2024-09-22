@@ -1,4 +1,4 @@
-package procedure
+package ezddb
 
 import (
 	"context"
@@ -52,7 +52,7 @@ func (p ScanProcedure) Execute(ctx context.Context,
 type PageScanCallback = func(context.Context, *dynamodb.ScanOutput) bool
 
 // WithPagination creates a new procedure that exhastively retrieves items from the
-// database using the initial procedure. Use the callback to access data from each
+// database using the initial ezddb. Use the callback to access data from each
 // response.
 func (p ScanProcedure) WithPagination(callback PageScanCallback) ScanExecutor {
 	return func(ctx context.Context, scanner Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {

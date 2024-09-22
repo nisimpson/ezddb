@@ -1,4 +1,4 @@
-package procedure
+package ezddb
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
-
 
 // Deleter implements the dynamodb Delete API.
 type Deleter interface {

@@ -1,4 +1,4 @@
-package procedure_test
+package ezddb_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb/procedure"
+	"github.com/nisimpson/ezddb"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,8 +37,8 @@ func (p transactGetter) fails() transactGetter {
 	return p
 }
 
-func (t table) getCustomers(customers ...string) procedure.TransactionGetProcedure {
-	transaction := procedure.NewTransactionGetProcedure()
+func (t table) getCustomers(customers ...string) ezddb.TransactionGetProcedure {
+	transaction := ezddb.NewTransactionGetProcedure()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.getCustomer(c))
 	}
@@ -48,7 +48,7 @@ func (t table) getCustomers(customers ...string) procedure.TransactionGetProcedu
 func TestTransactionGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionGetProcedure
+		procedure ezddb.TransactionGetProcedure
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
@@ -103,8 +103,8 @@ func TestTransactionGetInvoke(t *testing.T) {
 func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
-		transactGetter procedure.TransactionGetter
-		procedure      procedure.TransactionGetProcedure
+		transactGetter ezddb.TransactionGetter
+		procedure      ezddb.TransactionGetProcedure
 		wantErr        bool
 	}
 
@@ -147,20 +147,20 @@ func TestTransactionGetExecute(t *testing.T) {
 func TestTransactionGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure procedure.TransactionGetProcedure
-		modifier  procedure.TransactionGetModifier
+		procedure ezddb.TransactionGetProcedure
+		modifier  ezddb.TransactionGetModifier
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := procedure.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifier := ezddb.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		input.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
 		return nil
 	})
 
-	modifierFails := procedure.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifierFails := ezddb.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		return ErrMock
 	})
 

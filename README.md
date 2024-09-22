@@ -1,2 +1,2 @@
 # ezddb
-Create composable DynamoDB stored procedure.
+Create composable DynamoDB stored ezddb.

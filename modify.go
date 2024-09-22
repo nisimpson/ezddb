@@ -1,4 +1,4 @@
-package procedure
+package ezddb
 
 import (
 	"context"
@@ -61,7 +61,7 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 }
 
 // WithLastToken creates a new input modifier for adding pagination tokens to scan or query
-// procedure.
+// ezddb.
 func WithLastToken(token string, provider StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
 }
