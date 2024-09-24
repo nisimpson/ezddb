@@ -28,12 +28,12 @@ func must[T any](item T, err error) T {
 }
 
 type table struct {
-	procedureFails bool
+	OperationFails bool
 	tableName      string
 }
 
 func (t table) failsTo() table {
-	t.procedureFails = true
+	t.OperationFails = true
 	return t
 }
 

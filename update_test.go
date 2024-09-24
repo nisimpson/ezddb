@@ -37,9 +37,9 @@ func (p updater) fails() updater {
 	return p
 }
 
-func (t table) updateCustomer(c customer) ezddb.UpdateProcedure {
+func (t table) updateCustomer(c customer) ezddb.UpdateOperation {
 	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
-		if t.procedureFails {
+		if t.OperationFails {
 			return nil, ErrMock
 		}
 		return &dynamodb.UpdateItemInput{
@@ -61,7 +61,7 @@ func (t table) updateCustomer(c customer) ezddb.UpdateProcedure {
 func TestUpdateInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.UpdateProcedure
+		Operation ezddb.UpdateOperation
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
@@ -71,7 +71,7 @@ func TestUpdateInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantInput: dynamodb.UpdateItemInput{
 				TableName: aws.String("customer-table"),
 				Key: map[string]types.AttributeValue{
@@ -87,13 +87,13 @@ func TestUpdateInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -110,7 +110,7 @@ func TestUpdateExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		updater   ezddb.Updater
-		procedure ezddb.UpdateProcedure
+		Operation ezddb.UpdateOperation
 		wantErr   bool
 	}
 
@@ -119,25 +119,25 @@ func TestUpdateExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			updater:   newUpdater(fixture{}),
 			wantErr:   false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			updater:   newUpdater(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if updater fails",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			updater:   newUpdater(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.updater)
+			output, err := tc.Operation.Execute(context.TODO(), tc.updater)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -153,7 +153,7 @@ func TestUpdateExecute(t *testing.T) {
 func TestUpdateModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.UpdateProcedure
+		Operation ezddb.UpdateOperation
 		modifier  ezddb.UpdateModifier
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
@@ -173,7 +173,7 @@ func TestUpdateModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifier,
 			wantInput: dynamodb.UpdateItemInput{
 				TableName: aws.String("customer-table"),
@@ -193,19 +193,19 @@ func TestUpdateModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -221,7 +221,7 @@ func TestUpdateModify(t *testing.T) {
 func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     ezddb.UpdateProcedure
+		Operation     ezddb.UpdateOperation
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool
@@ -232,7 +232,7 @@ func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantInput: dynamodb.TransactWriteItemsInput{
 				TransactItems: []types.TransactWriteItem{
 					{
@@ -256,12 +256,12 @@ func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().updateCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
+			err := tc.Operation.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

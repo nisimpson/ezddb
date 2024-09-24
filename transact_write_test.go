@@ -37,8 +37,8 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteProcedure {
-	transaction := ezddb.NewTransactionWriteProcedure()
+func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteOperation {
+	transaction := ezddb.NewTransactionWriteOperation()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.updateCustomer(c))
 	}
@@ -48,7 +48,7 @@ func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteProc
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.TransactionWriteProcedure
+		Operation ezddb.TransactionWriteOperation
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
@@ -58,7 +58,7 @@ func TestTransactWriteInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name: "returns the input successfully",
-			procedure: table.updateCustomers(
+			Operation: table.updateCustomers(
 				customer{ID: "123", Name: "John Doe"},
 				customer{ID: "345", Name: "Jane Doe"},
 			),
@@ -98,13 +98,13 @@ func TestTransactWriteInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -121,7 +121,7 @@ func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactWriter ezddb.TransactionWriter
-		procedure      ezddb.TransactionWriteProcedure
+		Operation      ezddb.TransactionWriteOperation
 		wantErr        bool
 	}
 
@@ -130,25 +130,25 @@ func TestTransactWriteExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:           "returns the output successfully",
-			procedure:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			Operation:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			transactWriter: newTransactWriter(fixture{}),
 			wantErr:        false,
 		},
 		{
-			name:           "returns error if procedure fails",
-			procedure:      table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			name:           "returns error if Operation fails",
+			Operation:      table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			transactWriter: newTransactWriter(fixture{}),
 			wantErr:        true,
 		},
 		{
 			name:           "returns error if transactWriter fails",
-			procedure:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			Operation:      table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			transactWriter: newTransactWriter(fixture{}).fails(),
 			wantErr:        true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.transactWriter)
+			output, err := tc.Operation.Execute(context.TODO(), tc.transactWriter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -164,7 +164,7 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.TransactionWriteProcedure
+		Operation ezddb.TransactionWriteOperation
 		modifier  ezddb.TransactionWriteModifier
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
@@ -184,7 +184,7 @@ func TestTransactWriteModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name: "returns the input successfully",
-			procedure: table.updateCustomers(
+			Operation: table.updateCustomers(
 				customer{ID: "123", Name: "John Doe"},
 				customer{ID: "345", Name: "Jane Doe"},
 			),
@@ -228,19 +228,19 @@ func TestTransactWriteModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.updateCustomers(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

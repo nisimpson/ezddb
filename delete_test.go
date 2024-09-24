@@ -37,9 +37,9 @@ func (p deleter) fails() deleter {
 	return p
 }
 
-func (t table) deleteCustomer(id string) ezddb.DeleteProcedure {
+func (t table) deleteCustomer(id string) ezddb.DeleteOperation {
 	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
-		if t.procedureFails {
+		if t.OperationFails {
 			return nil, ErrMock
 		}
 		return &dynamodb.DeleteItemInput{
@@ -54,7 +54,7 @@ func (t table) deleteCustomer(id string) ezddb.DeleteProcedure {
 func TestDeleteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.DeleteProcedure
+		Operation ezddb.DeleteOperation
 		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
 	}
@@ -64,7 +64,7 @@ func TestDeleteInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			wantInput: dynamodb.DeleteItemInput{
 				TableName: aws.String("customer-table"),
 				Key: map[string]types.AttributeValue{
@@ -73,13 +73,13 @@ func TestDeleteInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().deleteCustomer("123"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -96,7 +96,7 @@ func TestDeleteExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		deleter   ezddb.Deleter
-		procedure ezddb.DeleteProcedure
+		Operation ezddb.DeleteOperation
 		wantErr   bool
 	}
 
@@ -105,25 +105,25 @@ func TestDeleteExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			deleter:   newDeleter(fixture{}),
 			wantErr:   false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().deleteCustomer("123"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().deleteCustomer("123"),
 			deleter:   newDeleter(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if deleter fails",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			deleter:   newDeleter(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.deleter)
+			output, err := tc.Operation.Execute(context.TODO(), tc.deleter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -139,7 +139,7 @@ func TestDeleteExecute(t *testing.T) {
 func TestDeleteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.DeleteProcedure
+		Operation ezddb.DeleteOperation
 		modifier  ezddb.DeleteModifier
 		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
@@ -159,7 +159,7 @@ func TestDeleteModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			modifier:  modifier,
 			wantInput: dynamodb.DeleteItemInput{
 				ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
@@ -172,19 +172,19 @@ func TestDeleteModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().deleteCustomer("123"),
+			Operation: table.failsTo().deleteCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -200,7 +200,7 @@ func TestDeleteModify(t *testing.T) {
 func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		procedure  ezddb.DeleteProcedure
+		Operation  ezddb.DeleteOperation
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -211,7 +211,7 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			wantInput: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {
@@ -229,7 +229,7 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns the input when the input is non empty",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			batchwrite: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {},
@@ -252,12 +252,12 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().deleteCustomer("123"),
+			Operation: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 		{
 			name: "returns error if table name is missing",
-			procedure: table.deleteCustomer("123").Modify(
+			Operation: table.deleteCustomer("123").Modify(
 				ezddb.DeleteModifierFunc(
 					func(ctx context.Context, input *dynamodb.DeleteItemInput) error {
 						input.TableName = nil
@@ -269,7 +269,7 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyBatchWriteItemInput(context.TODO(), &tc.batchwrite)
+			err := tc.Operation.ModifyBatchWriteItemInput(context.TODO(), &tc.batchwrite)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -285,7 +285,7 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 func TestDeleteModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     ezddb.DeleteProcedure
+		Operation     ezddb.DeleteOperation
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool
@@ -296,7 +296,7 @@ func TestDeleteModifyTransactWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.deleteCustomer("123"),
+			Operation: table.deleteCustomer("123"),
 			wantInput: dynamodb.TransactWriteItemsInput{
 				TransactItems: []types.TransactWriteItem{
 					{
@@ -313,12 +313,12 @@ func TestDeleteModifyTransactWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().deleteCustomer("123"),
+			Operation: table.failsTo().deleteCustomer("123"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
+			err := tc.Operation.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

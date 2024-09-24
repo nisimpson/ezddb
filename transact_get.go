@@ -11,22 +11,22 @@ type TransactionGetter interface {
 	TransactGetItems(context.Context, *dynamodb.TransactGetItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error)
 }
 
-// TransactionGetProcedure functions generate dynamodb input data given some context.
-type TransactionGetProcedure func(context.Context) (*dynamodb.TransactGetItemsInput, error)
+// TransactionGetOperation functions generate dynamodb input data given some context.
+type TransactionGetOperation func(context.Context) (*dynamodb.TransactGetItemsInput, error)
 
-// NewTransactionGetProcedure returns a new transaction get procedure instance.
-func NewTransactionGetProcedure() TransactionGetProcedure {
+// NewTransactionGetOperation returns a new transaction get Operation instance.
+func NewTransactionGetOperation() TransactionGetOperation {
 	return func(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 		return &dynamodb.TransactGetItemsInput{}, nil
 	}
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (t TransactionGetProcedure) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
+func (t TransactionGetOperation) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 	return t(ctx)
 }
 
-// TransactionGetModifier makes modifications to the input before the procedure is executed.
+// TransactionGetModifier makes modifications to the input before the Operation is executed.
 type TransactionGetModifier interface {
 	// ModifyTransactGetItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactGetItemsInput(context.Context, *dynamodb.TransactGetItemsInput) error
@@ -39,9 +39,9 @@ func (t TransactionGetModifierFunc) ModifyTransactGetItemsInput(ctx context.Cont
 	return t(ctx, input)
 }
 
-// Modify adds modifying functions to the procedure, transforming the input
+// Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (t TransactionGetProcedure) Modify(modifiers ...TransactionGetModifier) TransactionGetProcedure {
+func (t TransactionGetOperation) Modify(modifiers ...TransactionGetModifier) TransactionGetOperation {
 	mapper := func(ctx context.Context, input *dynamodb.TransactGetItemsInput, mod TransactionGetModifier) error {
 		return mod.ModifyTransactGetItemsInput(ctx, input)
 	}
@@ -50,8 +50,8 @@ func (t TransactionGetProcedure) Modify(modifiers ...TransactionGetModifier) Tra
 	}
 }
 
-// Execute executes the procedure, returning the API result.
-func (t TransactionGetProcedure) Execute(ctx context.Context,
+// Execute executes the Operation, returning the API result.
+func (t TransactionGetOperation) Execute(ctx context.Context,
 	getter TransactionGetter, options ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {
 		return nil, err

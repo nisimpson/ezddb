@@ -12,11 +12,11 @@ type BatchWriter interface {
 	BatchWriteItem(context.Context, *dynamodb.BatchWriteItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
 }
 
-// BatchWriteProcedure functions generate dynamodb put input data given some context.
-type BatchWriteProcedure func(context.Context) (*dynamodb.BatchWriteItemInput, error)
+// BatchWriteOperation functions generate dynamodb put input data given some context.
+type BatchWriteOperation func(context.Context) (*dynamodb.BatchWriteItemInput, error)
 
-// NewBatchWriteProcedure creates a new batch write procedure instance.
-func NewBatchWriteProcedure() BatchWriteProcedure {
+// NewBatchWriteOperation creates a new batch write Operation instance.
+func NewBatchWriteOperation() BatchWriteOperation {
 	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 		return &dynamodb.BatchWriteItemInput{
 			RequestItems: make(map[string][]types.WriteRequest),
@@ -25,19 +25,19 @@ func NewBatchWriteProcedure() BatchWriteProcedure {
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (g BatchWriteProcedure) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
+func (g BatchWriteOperation) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 	return g(ctx)
 }
 
-// BatchWriteModifier makes modifications to the input before the procedure is executed.
+// BatchWriteModifier makes modifications to the input before the Operation is executed.
 type BatchWriteModifier interface {
 	// ModifyBatchWriteItemInput is invoked when this modifier is applied to the provided input.
 	ModifyBatchWriteItemInput(context.Context, *dynamodb.BatchWriteItemInput) error
 }
 
-// Modify adds modifying functions to the procedure, transforming the input
+// Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (b BatchWriteProcedure) Modify(modifiers ...BatchWriteModifier) BatchWriteProcedure {
+func (b BatchWriteOperation) Modify(modifiers ...BatchWriteModifier) BatchWriteOperation {
 	mapper := func(ctx context.Context, input *dynamodb.BatchWriteItemInput, mod BatchWriteModifier) error {
 		return mod.ModifyBatchWriteItemInput(ctx, input)
 	}
@@ -46,8 +46,8 @@ func (b BatchWriteProcedure) Modify(modifiers ...BatchWriteModifier) BatchWriteP
 	}
 }
 
-// Execute executes the procedure, returning the API result.
-func (b BatchWriteProcedure) Execute(ctx context.Context,
+// Execute executes the Operation, returning the API result.
+func (b BatchWriteOperation) Execute(ctx context.Context,
 	writer BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err

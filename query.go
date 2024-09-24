@@ -11,15 +11,15 @@ type Querier interface {
 	Query(context.Context, *dynamodb.QueryInput, ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error)
 }
 
-// QueryProcedure functions generate dynamodb input data given some context.
-type QueryProcedure func(context.Context) (*dynamodb.QueryInput, error)
+// QueryOperation functions generate dynamodb input data given some context.
+type QueryOperation func(context.Context) (*dynamodb.QueryInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (q QueryProcedure) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
+func (q QueryOperation) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
 	return q(ctx)
 }
 
-// QueryModifier makes modifications to the scan input before the procedure is executed.
+// QueryModifier makes modifications to the scan input before the Operation is executed.
 type QueryModifier interface {
 	// ModifyQueryInput is invoked when this modifier is applied to the provided input.
 	ModifyQueryInput(context.Context, *dynamodb.QueryInput) error
@@ -32,9 +32,9 @@ func (q QueryModifierFunc) ModifyQueryInput(ctx context.Context, input *dynamodb
 	return q(ctx, input)
 }
 
-// Modify adds modifying functions to the procedure, transforming the input
+// Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (p QueryProcedure) Modify(modifiers ...QueryModifier) QueryProcedure {
+func (p QueryOperation) Modify(modifiers ...QueryModifier) QueryOperation {
 	mapper := func(ctx context.Context, input *dynamodb.QueryInput, mod QueryModifier) error {
 		return mod.ModifyQueryInput(ctx, input)
 	}
@@ -43,8 +43,8 @@ func (p QueryProcedure) Modify(modifiers ...QueryModifier) QueryProcedure {
 	}
 }
 
-// Execute executes the procedure, returning the API result.
-func (p QueryProcedure) Execute(ctx context.Context,
+// Execute executes the Operation, returning the API result.
+func (p QueryOperation) Execute(ctx context.Context,
 	querier Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
@@ -53,10 +53,10 @@ func (p QueryProcedure) Execute(ctx context.Context,
 	}
 }
 
-// WithPagination creates a new procedure that exhastively retrieves items from the
+// WithPagination creates a new Operation that exhastively retrieves items from the
 // database using the initial ezddb. Use the callback to access data from each
 // response.
-func (p QueryProcedure) WithPagination(callback PageQueryCallback) QueryExecutor {
+func (p QueryOperation) WithPagination(callback PageQueryCallback) QueryExecutor {
 	return func(ctx context.Context, q Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {
@@ -76,7 +76,7 @@ func (p QueryProcedure) WithPagination(callback PageQueryCallback) QueryExecutor
 	}
 }
 
-// PageQueryCallback is invoked each time the stored procedure is executed. The result
+// PageQueryCallback is invoked each time the stored Operation is executed. The result
 // of the execution is provided for further processing; to halt further page calls,
 // return false.
 type PageQueryCallback = func(context.Context, *dynamodb.QueryOutput) bool

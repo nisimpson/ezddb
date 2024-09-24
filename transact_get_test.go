@@ -37,8 +37,8 @@ func (p transactGetter) fails() transactGetter {
 	return p
 }
 
-func (t table) getCustomers(customers ...string) ezddb.TransactionGetProcedure {
-	transaction := ezddb.NewTransactionGetProcedure()
+func (t table) getCustomers(customers ...string) ezddb.TransactionGetOperation {
+	transaction := ezddb.NewTransactionGetOperation()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.getCustomer(c))
 	}
@@ -48,7 +48,7 @@ func (t table) getCustomers(customers ...string) ezddb.TransactionGetProcedure {
 func TestTransactionGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.TransactionGetProcedure
+		Operation ezddb.TransactionGetOperation
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
@@ -58,7 +58,7 @@ func TestTransactionGetInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomers("123", "345"),
+			Operation: table.getCustomers("123", "345"),
 			wantInput: dynamodb.TransactGetItemsInput{
 				TransactItems: []types.TransactGetItem{
 					{
@@ -81,13 +81,13 @@ func TestTransactionGetInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().getCustomers("123", "345"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().getCustomers("123", "345"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -104,7 +104,7 @@ func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactGetter ezddb.TransactionGetter
-		procedure      ezddb.TransactionGetProcedure
+		Operation      ezddb.TransactionGetOperation
 		wantErr        bool
 	}
 
@@ -113,25 +113,25 @@ func TestTransactionGetExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:           "returns the output successfully",
-			procedure:      table.getCustomers("123", "345"),
+			Operation:      table.getCustomers("123", "345"),
 			transactGetter: newTransactGetter(fixture{}),
 			wantErr:        false,
 		},
 		{
-			name:           "returns error if procedure fails",
-			procedure:      table.failsTo().getCustomers("123", "345"),
+			name:           "returns error if Operation fails",
+			Operation:      table.failsTo().getCustomers("123", "345"),
 			transactGetter: newTransactGetter(fixture{}),
 			wantErr:        true,
 		},
 		{
 			name:           "returns error if transactGetter fails",
-			procedure:      table.getCustomers("123", "345"),
+			Operation:      table.getCustomers("123", "345"),
 			transactGetter: newTransactGetter(fixture{}).fails(),
 			wantErr:        true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.transactGetter)
+			output, err := tc.Operation.Execute(context.TODO(), tc.transactGetter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -147,7 +147,7 @@ func TestTransactionGetExecute(t *testing.T) {
 func TestTransactionGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.TransactionGetProcedure
+		Operation ezddb.TransactionGetOperation
 		modifier  ezddb.TransactionGetModifier
 		wantInput dynamodb.TransactGetItemsInput
 		wantErr   bool
@@ -167,7 +167,7 @@ func TestTransactionGetModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomers("123", "345"),
+			Operation: table.getCustomers("123", "345"),
 			modifier:  modifier,
 			wantInput: dynamodb.TransactGetItemsInput{
 				ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
@@ -194,19 +194,19 @@ func TestTransactionGetModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().getCustomers("123", "345"),
+			Operation: table.failsTo().getCustomers("123", "345"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.getCustomers("123", "345"),
+			Operation: table.getCustomers("123", "345"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

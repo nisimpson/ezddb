@@ -37,9 +37,9 @@ func (p getter) fails() getter {
 	return p
 }
 
-func (t table) getCustomer(id string) ezddb.GetProcedure {
+func (t table) getCustomer(id string) ezddb.GetOperation {
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
-		if t.procedureFails {
+		if t.OperationFails {
 			return nil, ErrMock
 		}
 		return &dynamodb.GetItemInput{
@@ -54,7 +54,7 @@ func (t table) getCustomer(id string) ezddb.GetProcedure {
 func TestGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.GetProcedure
+		Operation ezddb.GetOperation
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
 	}
@@ -64,7 +64,7 @@ func TestGetInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			wantInput: dynamodb.GetItemInput{
 				TableName: aws.String("customer-table"),
 				Key: map[string]types.AttributeValue{
@@ -73,13 +73,13 @@ func TestGetInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().getCustomer("123"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().getCustomer("123"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -96,7 +96,7 @@ func TestGetExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		getter    ezddb.Getter
-		procedure ezddb.GetProcedure
+		Operation ezddb.GetOperation
 		wantErr   bool
 	}
 
@@ -105,25 +105,25 @@ func TestGetExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			getter:    newgetter(fixture{}),
 			wantErr:   false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().getCustomer("123"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().getCustomer("123"),
 			getter:    newgetter(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if getter fails",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			getter:    newgetter(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.getter)
+			output, err := tc.Operation.Execute(context.TODO(), tc.getter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -139,7 +139,7 @@ func TestGetExecute(t *testing.T) {
 func TestGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.GetProcedure
+		Operation ezddb.GetOperation
 		modifier  ezddb.GetModifier
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
@@ -159,7 +159,7 @@ func TestGetModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			modifier:  modifier,
 			wantInput: dynamodb.GetItemInput{
 				TableName: aws.String("customer-table"),
@@ -172,19 +172,19 @@ func TestGetModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().getCustomer("123"),
+			Operation: table.failsTo().getCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -200,7 +200,7 @@ func TestGetModify(t *testing.T) {
 func TestGetModifyBatchGetItemInput(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.GetProcedure
+		Operation ezddb.GetOperation
 		batchget  dynamodb.BatchGetItemInput
 		wantInput dynamodb.BatchGetItemInput
 		wantErr   bool
@@ -211,7 +211,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			wantInput: dynamodb.BatchGetItemInput{
 				RequestItems: map[string]types.KeysAndAttributes{
 					"customer-table": {
@@ -227,7 +227,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns the input when the input is non empty",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			batchget: dynamodb.BatchGetItemInput{
 				RequestItems: map[string]types.KeysAndAttributes{
 					"customer-table": {},
@@ -248,12 +248,12 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().getCustomer("123"),
+			Operation: table.failsTo().getCustomer("123"),
 			wantErr:   true,
 		},
 		{
 			name: "returns error if table name is missing",
-			procedure: table.getCustomer("123").Modify(
+			Operation: table.getCustomer("123").Modify(
 				ezddb.GetModifierFunc(
 					func(ctx context.Context, input *dynamodb.GetItemInput) error {
 						input.TableName = nil
@@ -265,7 +265,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyBatchGetItemInput(context.TODO(), &tc.batchget)
+			err := tc.Operation.ModifyBatchGetItemInput(context.TODO(), &tc.batchget)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -281,7 +281,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 func TestGetModifyTransactGetItemInput(t *testing.T) {
 	type testcase struct {
 		name        string
-		procedure   ezddb.GetProcedure
+		Operation   ezddb.GetOperation
 		transactGet dynamodb.TransactGetItemsInput
 		wantInput   dynamodb.TransactGetItemsInput
 		wantErr     bool
@@ -292,7 +292,7 @@ func TestGetModifyTransactGetItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.getCustomer("123"),
+			Operation: table.getCustomer("123"),
 			wantInput: dynamodb.TransactGetItemsInput{
 				TransactItems: []types.TransactGetItem{
 					{
@@ -309,12 +309,12 @@ func TestGetModifyTransactGetItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().getCustomer("123"),
+			Operation: table.failsTo().getCustomer("123"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyTransactGetItemsInput(context.TODO(), &tc.transactGet)
+			err := tc.Operation.ModifyTransactGetItemsInput(context.TODO(), &tc.transactGet)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

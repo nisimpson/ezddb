@@ -38,9 +38,9 @@ func (p putter) fails() putter {
 	return p
 }
 
-func (t table) putCustomer(c customer) ezddb.PutProcedure {
+func (t table) putCustomer(c customer) ezddb.PutOperation {
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
-		if t.procedureFails {
+		if t.OperationFails {
 			return nil, ErrMock
 		}
 		item := must(attributevalue.MarshalMap(c))
@@ -54,7 +54,7 @@ func (t table) putCustomer(c customer) ezddb.PutProcedure {
 func TestPutInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.PutProcedure
+		Operation ezddb.PutOperation
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
 	}
@@ -64,7 +64,7 @@ func TestPutInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantInput: dynamodb.PutItemInput{
 				TableName: aws.String("customer-table"),
 				Item: map[string]types.AttributeValue{
@@ -74,13 +74,13 @@ func TestPutInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -97,7 +97,7 @@ func TestPutExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		putter    ezddb.Putter
-		procedure ezddb.PutProcedure
+		Operation ezddb.PutOperation
 		wantErr   bool
 	}
 
@@ -106,25 +106,25 @@ func TestPutExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			putter:    newPutter(fixture{}),
 			wantErr:   false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
 			putter:    newPutter(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if putter fails",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			putter:    newPutter(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.putter)
+			output, err := tc.Operation.Execute(context.TODO(), tc.putter)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -140,7 +140,7 @@ func TestPutExecute(t *testing.T) {
 func TestPutModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.PutProcedure
+		Operation ezddb.PutOperation
 		modifier  ezddb.PutModifier
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
@@ -160,7 +160,7 @@ func TestPutModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifier,
 			wantInput: dynamodb.PutItemInput{
 				TableName: aws.String("customer-table"),
@@ -174,19 +174,19 @@ func TestPutModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -202,7 +202,7 @@ func TestPutModify(t *testing.T) {
 func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		procedure  ezddb.PutProcedure
+		Operation  ezddb.PutOperation
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -213,7 +213,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantInput: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {
@@ -232,7 +232,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns the input when the input is non empty",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			batchwrite: dynamodb.BatchWriteItemInput{
 				RequestItems: map[string][]types.WriteRequest{
 					"customer-table": {},
@@ -256,12 +256,12 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 		{
 			name: "returns error if table name is missing",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}).Modify(
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}).Modify(
 				ezddb.PutModifierFunc(
 					func(ctx context.Context, input *dynamodb.PutItemInput) error {
 						input.TableName = nil
@@ -273,7 +273,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyBatchWriteItemInput(context.TODO(), &tc.batchwrite)
+			err := tc.Operation.ModifyBatchWriteItemInput(context.TODO(), &tc.batchwrite)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -289,7 +289,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		procedure     ezddb.PutProcedure
+		Operation     ezddb.PutOperation
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool
@@ -300,7 +300,7 @@ func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantInput: dynamodb.TransactWriteItemsInput{
 				TransactItems: []types.TransactWriteItem{
 					{
@@ -318,12 +318,12 @@ func TestPutModifyTransactWriteItemInput(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
+			Operation: table.failsTo().putCustomer(customer{ID: "123", Name: "John Doe"}),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := tc.procedure.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
+			err := tc.Operation.ModifyTransactWriteItemsInput(context.TODO(), &tc.transactWrite)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return

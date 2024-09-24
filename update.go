@@ -12,15 +12,15 @@ type Updater interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)
 }
 
-// UpdateProcedure functions generate dynamodb input data given some context.
-type UpdateProcedure func(context.Context) (*dynamodb.UpdateItemInput, error)
+// UpdateOperation functions generate dynamodb input data given some context.
+type UpdateOperation func(context.Context) (*dynamodb.UpdateItemInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (u UpdateProcedure) Invoke(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
+func (u UpdateOperation) Invoke(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 	return u(ctx)
 }
 
-// UpdateModifier makes modifications to the input before the procedure is executed.
+// UpdateModifier makes modifications to the input before the Operation is executed.
 type UpdateModifier interface {
 	// ModifyPutItemInput is invoked when this modifier is applied to the provided input.
 	ModifyUpdateItemInput(context.Context, *dynamodb.UpdateItemInput) error
@@ -33,9 +33,9 @@ func (u UpdateModifierFunc) ModifyUpdateItemInput(ctx context.Context, input *dy
 	return u(ctx, input)
 }
 
-// Modify adds modifying functions to the procedure, transforming the input
+// Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (u UpdateProcedure) Modify(modifiers ...UpdateModifier) UpdateProcedure {
+func (u UpdateOperation) Modify(modifiers ...UpdateModifier) UpdateOperation {
 	mapper := func(ctx context.Context, input *dynamodb.UpdateItemInput, mod UpdateModifier) error {
 		return mod.ModifyUpdateItemInput(ctx, input)
 	}
@@ -44,8 +44,8 @@ func (u UpdateProcedure) Modify(modifiers ...UpdateModifier) UpdateProcedure {
 	}
 }
 
-// Execute executes the procedure, returning the API result.
-func (u UpdateProcedure) Execute(ctx context.Context,
+// Execute executes the Operation, returning the API result.
+func (u UpdateOperation) Execute(ctx context.Context,
 	Updater Updater, options ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	if input, err := u.Invoke(ctx); err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func (u UpdateProcedure) Execute(ctx context.Context,
 }
 
 // ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
-func (u UpdateProcedure) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+func (u UpdateOperation) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	if update, err := u.Invoke(ctx); err != nil {
 		return err
 	} else {

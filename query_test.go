@@ -37,9 +37,9 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) ezddb.QueryProcedure {
+func (t table) queryCustomerName(name string) ezddb.QueryOperation {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		if t.procedureFails {
+		if t.OperationFails {
 			return nil, ErrMock
 		}
 		return &dynamodb.QueryInput{
@@ -58,7 +58,7 @@ func (t table) queryCustomerName(name string) ezddb.QueryProcedure {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.QueryProcedure
+		Operation ezddb.QueryOperation
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -68,7 +68,7 @@ func TestQueryInvoke(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.queryCustomerName("John Doe"),
+			Operation: table.queryCustomerName("John Doe"),
 			wantInput: dynamodb.QueryInput{
 				TableName:              aws.String("customer-table"),
 				KeyConditionExpression: aws.String("#name = :name"),
@@ -81,13 +81,13 @@ func TestQueryInvoke(t *testing.T) {
 			},
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().queryCustomerName("John Doe"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().queryCustomerName("John Doe"),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Invoke(context.TODO())
+			input, err := tc.Operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -104,7 +104,7 @@ func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		querier   ezddb.Querier
-		procedure ezddb.QueryProcedure
+		Operation ezddb.QueryOperation
 		wantErr   bool
 	}
 
@@ -113,25 +113,25 @@ func TestQueryExecute(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the output successfully",
-			procedure: table.queryCustomerName("John Doe"),
+			Operation: table.queryCustomerName("John Doe"),
 			querier:   newQuerier(fixture{}),
 			wantErr:   false,
 		},
 		{
-			name:      "returns error if procedure fails",
-			procedure: table.failsTo().queryCustomerName("John Doe"),
+			name:      "returns error if Operation fails",
+			Operation: table.failsTo().queryCustomerName("John Doe"),
 			querier:   newQuerier(fixture{}),
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if querier fails",
-			procedure: table.queryCustomerName("John Doe"),
+			Operation: table.queryCustomerName("John Doe"),
 			querier:   newQuerier(fixture{}).fails(),
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			output, err := tc.procedure.Execute(context.TODO(), tc.querier)
+			output, err := tc.Operation.Execute(context.TODO(), tc.querier)
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -147,7 +147,7 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		procedure ezddb.QueryProcedure
+		Operation ezddb.QueryOperation
 		modifier  ezddb.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool
@@ -167,7 +167,7 @@ func TestQueryModify(t *testing.T) {
 	for _, tc := range []testcase{
 		{
 			name:      "returns the input successfully",
-			procedure: table.queryCustomerName("John Doe"),
+			Operation: table.queryCustomerName("John Doe"),
 			modifier:  modifier,
 			wantInput: dynamodb.QueryInput{
 				IndexName:              aws.String("query-index"),
@@ -184,19 +184,19 @@ func TestQueryModify(t *testing.T) {
 		},
 		{
 			name:      "returns error if invocation fails",
-			procedure: table.failsTo().queryCustomerName("John Doe"),
+			Operation: table.failsTo().queryCustomerName("John Doe"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 		{
 			name:      "returns error if modifier fails",
-			procedure: table.queryCustomerName("John Doe"),
+			Operation: table.queryCustomerName("John Doe"),
 			modifier:  modifierFails,
 			wantErr:   true,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.procedure.Modify(tc.modifier).Invoke(context.TODO())
+			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
