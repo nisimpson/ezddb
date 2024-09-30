@@ -21,47 +21,166 @@ var (
 const (
 	AttributePartitionKey           = "pk"
 	AttributeSortKey                = "sk"
-	AttributeAssociation            = "association"
+	AttributeRelation               = "relation"
 	AttributeCollectionQuerySortKey = "gsi2_sk"
 	AttributeReverseLookupSortKey   = "gsi1_sk"
 )
 
-type Data interface {
+type Node interface {
 	DynamoGraphNodeID() string
-	DynamoGraphEdgeType() string
+	DynamoGraphNodePrefix() string
+	DynamoGraphRelation() string
 	DynamoGraphMarshal(createdAt, updatedAt time.Time) error
 	DynamoGraphUnmarshal(createdAt, updatedAt time.Time) error
+	DynamoGraphRelationships() map[string][]Node
 }
 
 type EdgeIdentifier interface {
 	EdgeID() (pk string, sk string)
 }
 
-type Edge[T Data] struct {
-	SourceID    string    `dynamodbav:"pk"`
-	TargetID    string    `dynamodbav:"sk"`
-	Association string    `dynamodbav:"association"`
-	GSI1SK      string    `dynamodbav:"gsi1_sk"`
-	GSI2SK      string    `dynamodbav:"gsi2_sk"`
-	CreatedAt   time.Time `dynamodbav:"created_at"`
-	UpdatedAt   time.Time `dynamodbav:"updated_at"`
-	Expires     time.Time `dynamodbav:"expires,unixtime"`
-	Data        T         `dynamodbav:"data"`
+type Item[T Node] struct {
+	PK        string    `dynamodbav:"pk"`
+	SK        string    `dynamodbav:"sk"`
+	Relation  string    `dynamodbav:"relation"`
+	GSI1SK    string    `dynamodbav:"gsi1_sk"`
+	GSI2SK    string    `dynamodbav:"gsi2_sk"`
+	CreatedAt time.Time `dynamodbav:"created_at"`
+	UpdatedAt time.Time `dynamodbav:"updated_at"`
+	Expires   time.Time `dynamodbav:"expires,unixtime"`
+	Data      T         `dynamodbav:"data"`
 }
 
-func (e Edge[T]) IsNode() bool {
-	return e.SourceID == e.TargetID
+type Clock func() time.Time
+
+type EdgeOptions struct {
+	HashID                     string
+	HashPrefix                 string
+	SortID                     string
+	SortPrefix                 string
+	Relation                   string
+	SupportsReverseLookupIndex bool
+	SupportsCollectionIndex    bool
+	Tick                       Clock
+	ExpirationDate             time.Time
 }
 
-func (e Edge[T]) EdgeID() (string, string) {
-	return e.SourceID, e.TargetID
+func NewItem[T Node](node T, opts ...func(*EdgeOptions)) Item[T] {
+	options := EdgeOptions{
+		Tick:                       time.Now,
+		HashID:                     node.DynamoGraphNodeID(),
+		HashPrefix:                 node.DynamoGraphNodePrefix(),
+		SortID:                     node.DynamoGraphNodeID(),
+		SortPrefix:                 node.DynamoGraphNodePrefix(),
+		SupportsReverseLookupIndex: true,
+		SupportsCollectionIndex:    true,
+	}
+
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	now := options.Tick().UTC()
+
+	edge := Item[T]{
+		PK:        options.HashPrefix + ":" + options.HashID,
+		SK:        options.SortPrefix + ":" + options.SortID,
+		Relation:  options.Relation,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Expires:   options.ExpirationDate,
+	}
+
+	if options.SupportsCollectionIndex {
+		edge.GSI2SK = edge.CreatedAt.Format(time.RFC3339)
+	}
+
+	if options.SupportsReverseLookupIndex {
+		edge.GSI1SK = edge.PK
+	}
+
+	return edge
 }
 
-func (e Edge[T]) TableRowKey() ezddb.TableRow {
-	return tableRowKey(e.SourceID, e.TargetID)
+type ItemRef struct {
+	NodeID     string
+	NodePrefix string
+	EdgeID     string
+	Relation   string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
-func (e *Edge[T]) Marshal(m ezddb.RowMarshaler) (ezddb.TableRow, error) {
+func (n *ItemRef) DynamoGraphNodeID() string {
+	return n.NodeID
+}
+
+func (n *ItemRef) DynamoGraphNodePrefix() string {
+	return n.NodePrefix
+}
+
+func (n *ItemRef) DynamoGraphRelation() string {
+	return n.Relation
+}
+
+func (n *ItemRef) DynamoGraphMarshal(createdAt, updatedAt time.Time) error {
+	n.CreatedAt = createdAt
+	n.UpdatedAt = updatedAt
+	return nil
+}
+
+func (n *ItemRef) DynamoGraphUnmarshal(createdAt, updatedAt time.Time) error {
+	n.CreatedAt = createdAt
+	n.UpdatedAt = updatedAt
+	return nil
+}
+
+func (n *ItemRef) DynamoGraphRelationships() map[string][]Node {
+	return nil
+}
+
+func (e Item[T]) ref(node Node, relation string) Item[*ItemRef] {
+	ref := &ItemRef{
+		NodeID:     e.Data.DynamoGraphNodeID(),
+		NodePrefix: e.Data.DynamoGraphNodePrefix(),
+		Relation:   relation,
+	}
+	return NewItem(ref, func(eo *EdgeOptions) {
+		eo.SortID = node.DynamoGraphNodeID()
+		eo.SortPrefix = node.DynamoGraphNodePrefix()
+		eo.SupportsReverseLookupIndex = true
+		eo.SupportsCollectionIndex = false
+	})
+}
+
+func (e Item[T]) Refs() []Item[*ItemRef] {
+	relationships := e.Data.DynamoGraphRelationships()
+	if len(relationships) == 0 {
+		return nil
+	}
+
+	refs := make([]Item[*ItemRef], 0, len(relationships))
+	for name, nodes := range relationships {
+		for _, node := range nodes {
+			refs = append(refs, e.ref(node, name))
+		}
+	}
+	return refs
+}
+
+func (e Item[T]) IsNode() bool {
+	return e.PK == e.SK
+}
+
+func (e Item[T]) EdgeID() (string, string) {
+	return e.PK, e.SK
+}
+
+func (e Item[T]) TableRowKey() ezddb.TableRow {
+	return tableRowKey(e.PK, e.SK)
+}
+
+func (e *Item[T]) Marshal(m ezddb.RowMarshaler) (ezddb.TableRow, error) {
 	err := e.Data.DynamoGraphMarshal(e.CreatedAt, e.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -69,7 +188,7 @@ func (e *Edge[T]) Marshal(m ezddb.RowMarshaler) (ezddb.TableRow, error) {
 	return m(e)
 }
 
-func (e *Edge[T]) Unmarshal(r ezddb.TableRow, u ezddb.RowUnmarshaler) error {
+func (e *Item[T]) Unmarshal(r ezddb.TableRow, u ezddb.RowUnmarshaler) error {
 	err := u(r, e)
 	if err != nil {
 		return err
@@ -97,15 +216,16 @@ func NewNodeVisitor() *NodeVisitor {
 	}
 }
 
-func (v *NodeVisitor) AddAssociation(association string, visitor EdgeVisitor) {
-	v.mux[association] = visitor
+func (v *NodeVisitor) AddRelation(relation string, visitor EdgeVisitor) *NodeVisitor {
+	v.mux[relation] = visitor
+	return v
 }
 
 func (v NodeVisitor) VisitEdge(ctx context.Context, row ezddb.TableRow) error {
-	association := row[AttributeAssociation].(*types.AttributeValueMemberS).Value
-	visitor, ok := v.mux[association]
+	relation := row[AttributeRelation].(*types.AttributeValueMemberS).Value
+	visitor, ok := v.mux[relation]
 	if !ok {
-		return fmt.Errorf("no visitor found for association %s", association)
+		return fmt.Errorf("no visitor found for relation %s", relation)
 	}
 	return visitor.VisitEdge(ctx, row)
 }
@@ -123,13 +243,11 @@ type DynamoClient interface {
 }
 
 type Options struct {
-	DynamoClient
 	ezddb.StartKeyTokenProvider
 	ezddb.StartKeyProvider
 	TableName                string
 	CollectionQueryIndexName string
 	ReverseLookupIndexName   string
-	ApplyDynamoDBOptions     func(*dynamodb.Options)
 	BuildExpression          ExpressionBuilder
 	MarshalEdge              ezddb.RowMarshaler
 	UnmarshalEdge            ezddb.RowUnmarshaler
@@ -147,12 +265,10 @@ type Graph struct {
 	Options
 }
 
-func New(tableName string, client DynamoClient, opts ...OptionsFunc) *Graph {
+func New(tableName string, opts ...OptionsFunc) *Graph {
 	options := Options{
-		DynamoClient:             client,
 		CollectionQueryIndexName: "collection-query-index",
 		ReverseLookupIndexName:   "reverse-lookup-index",
-		ApplyDynamoDBOptions:     dynamoDBOptionsNoOp,
 		BuildExpression:          buildExpression,
 		MarshalEdge:              attributevalue.MarshalMap,
 		UnmarshalEdge:            attributevalue.UnmarshalMap,
@@ -162,7 +278,7 @@ func New(tableName string, client DynamoClient, opts ...OptionsFunc) *Graph {
 }
 
 type QueryNodesInput struct {
-	Association       string
+	relation          string
 	PageCursor        string
 	Limit             Limit
 	CreatedAfterDate  time.Time
@@ -171,44 +287,47 @@ type QueryNodesInput struct {
 	SortAscending     bool
 }
 
-func QueryNodes(ctx context.Context, g Graph, input QueryNodesInput, opts ...OptionsFunc) (*dynamodb.QueryOutput, error) {
+func QueryNodes(ctx context.Context, g Graph, input QueryNodesInput, opts ...OptionsFunc) ezddb.QueryOperation {
 	g.Options.apply(opts...)
-	expressionBuilder := expression.NewBuilder().
-		WithKeyCondition(edgesCreatedBetween(input.Association, input.CreatedAfterDate, input.CreatedBeforeDate))
 
-	condition := expression.ConditionBuilder{}
-	if input.Filter != nil {
-		condition = input.Filter.FilterCondition(ctx, condition)
+	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
+		expressionBuilder := expression.NewBuilder().
+			WithKeyCondition(edgesCreatedBetween(input.relation, input.CreatedAfterDate, input.CreatedBeforeDate))
+
+		condition := expression.ConditionBuilder{}
+		if input.Filter != nil {
+			condition = input.Filter.FilterCondition(ctx, condition)
+		}
+
+		if condition.IsSet() {
+			expressionBuilder = expressionBuilder.WithFilter(condition)
+		}
+
+		expr, err := g.BuildExpression(expressionBuilder)
+		if err != nil {
+			return nil, fmt.Errorf("build expression failed: %w", err)
+		}
+
+		startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
+		if err != nil {
+			return nil, fmt.Errorf("start key failed: %w", err)
+		}
+
+		return &dynamodb.QueryInput{
+			TableName:                 &g.TableName,
+			IndexName:                 &g.CollectionQueryIndexName,
+			KeyConditionExpression:    expr.KeyCondition(),
+			FilterExpression:          expr.Filter(),
+			ExpressionAttributeNames:  expr.Names(),
+			ExpressionAttributeValues: expr.Values(),
+			ExclusiveStartKey:         startKey,
+			Limit:                     input.Limit.Value(),
+			ScanIndexForward:          aws.Bool(input.SortAscending),
+		}, nil
 	}
-
-	if condition.IsSet() {
-		expressionBuilder = expressionBuilder.WithFilter(condition)
-	}
-
-	expr, err := g.BuildExpression(expressionBuilder)
-	if err != nil {
-		return nil, fmt.Errorf("build expression failed: %w", err)
-	}
-
-	startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
-	if err != nil {
-		return nil, fmt.Errorf("start key failed: %w", err)
-	}
-
-	return g.DynamoClient.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &g.TableName,
-		IndexName:                 &g.CollectionQueryIndexName,
-		KeyConditionExpression:    expr.KeyCondition(),
-		FilterExpression:          expr.Filter(),
-		ExpressionAttributeNames:  expr.Names(),
-		ExpressionAttributeValues: expr.Values(),
-		ExclusiveStartKey:         startKey,
-		Limit:                     input.Limit.Value(),
-		ScanIndexForward:          aws.Bool(input.SortAscending),
-	}, g.ApplyDynamoDBOptions)
 }
 
-func VisitNodes[T Data](ctx context.Context, g Graph, output *dynamodb.QueryOutput) ([]T, string, error) {
+func VisitNodes[T Node](ctx context.Context, g Graph, output *dynamodb.QueryOutput) ([]T, string, error) {
 	nextToken, err := ezddb.GetStartKeyToken(ctx, g, output.LastEvaluatedKey)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get start key token: %w", err)
@@ -216,7 +335,7 @@ func VisitNodes[T Data](ctx context.Context, g Graph, output *dynamodb.QueryOutp
 
 	nodes := make([]T, 0, len(output.Items))
 	for _, item := range output.Items {
-		node := Edge[T]{}
+		node := Item[T]{}
 		err := node.Unmarshal(item, g.UnmarshalEdge)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to unmarshal node: %w", err)
@@ -228,7 +347,7 @@ func VisitNodes[T Data](ctx context.Context, g Graph, output *dynamodb.QueryOutp
 }
 
 type QueryEdgesInput struct {
-	StartNodeID   string
+	NodeID        string
 	EdgePrefix    string
 	ReverseLookup bool
 	Limit         Limit
@@ -236,48 +355,49 @@ type QueryEdgesInput struct {
 	Filter        ConditionFilterProvider
 }
 
-func QueryEdges(ctx context.Context, g Graph, input QueryEdgesInput, opts ...OptionsFunc) (*dynamodb.QueryOutput, error) {
+func QueryNode(ctx context.Context, g Graph, input QueryEdgesInput, opts ...OptionsFunc) ezddb.QueryOperation {
 	g.Options.apply(opts...)
+	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
+		expressionBuilder := expression.NewBuilder().
+			WithKeyCondition(nodeEdgesWithPrefix(input.NodeID, input.EdgePrefix))
 
-	expressionBuilder := expression.NewBuilder().
-		WithKeyCondition(nodeEdgesWithPrefix(input.StartNodeID, input.EdgePrefix))
+		if input.ReverseLookup {
+			expressionBuilder = expressionBuilder.WithKeyCondition(
+				reverseNodeEdgesWithPrefix(input.NodeID, input.EdgePrefix))
+		}
 
-	if input.ReverseLookup {
-		expressionBuilder = expressionBuilder.WithKeyCondition(
-			reverseNodeEdgesWithPrefix(input.StartNodeID, input.EdgePrefix))
+		condition := expression.ConditionBuilder{}
+		if input.Filter != nil {
+			condition = input.Filter.FilterCondition(ctx, condition)
+		}
+
+		if condition.IsSet() {
+			expressionBuilder = expressionBuilder.WithFilter(condition)
+		}
+
+		expr, err := g.BuildExpression(expressionBuilder)
+		if err != nil {
+			return nil, fmt.Errorf("build expression failed: %w", err)
+		}
+
+		startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
+		if err != nil {
+			return nil, fmt.Errorf("start key failed: %w", err)
+		}
+
+		return &dynamodb.QueryInput{
+			TableName:                 &g.TableName,
+			KeyConditionExpression:    expr.KeyCondition(),
+			FilterExpression:          expr.Filter(),
+			ExpressionAttributeNames:  expr.Names(),
+			ExpressionAttributeValues: expr.Values(),
+			ExclusiveStartKey:         startKey,
+			Limit:                     input.Limit.Value(),
+		}, nil
 	}
-
-	condition := expression.ConditionBuilder{}
-	if input.Filter != nil {
-		condition = input.Filter.FilterCondition(ctx, condition)
-	}
-
-	if condition.IsSet() {
-		expressionBuilder = expressionBuilder.WithFilter(condition)
-	}
-
-	expr, err := g.BuildExpression(expressionBuilder)
-	if err != nil {
-		return nil, fmt.Errorf("build expression failed: %w", err)
-	}
-
-	startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
-	if err != nil {
-		return nil, fmt.Errorf("start key failed: %w", err)
-	}
-
-	return g.DynamoClient.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &g.TableName,
-		KeyConditionExpression:    expr.KeyCondition(),
-		FilterExpression:          expr.Filter(),
-		ExpressionAttributeNames:  expr.Names(),
-		ExpressionAttributeValues: expr.Values(),
-		ExclusiveStartKey:         startKey,
-		Limit:                     input.Limit.Value(),
-	}, g.ApplyDynamoDBOptions)
 }
 
-func VisitEdges(ctx context.Context, g Graph, visitor EdgeVisitor, output *dynamodb.QueryOutput) (string, error) {
+func VisitNode(ctx context.Context, g Graph, visitor EdgeVisitor, output *dynamodb.QueryOutput) (string, error) {
 	nextToken, err := ezddb.GetStartKeyToken(ctx, g, output.LastEvaluatedKey)
 	if err != nil {
 		return "", fmt.Errorf("failed to get start key token: %w", err)
@@ -372,5 +492,3 @@ func edgesCreatedBetween(edgetype string, start, end time.Time) expression.KeyCo
 
 	return condition
 }
-
-func dynamoDBOptionsNoOp(*dynamodb.Options) {}
