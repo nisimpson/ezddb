@@ -55,11 +55,3 @@ func (a attributeUpdate[T, U]) Increment(value T) attributeUpdater[T] {
 		return ub.Add(a.name(), expression.Value(value))
 	})
 }
-
-type searcherFunc[T any] func() []operation.QueryModifier
-
-func (f searcherFunc[T]) search() []operation.QueryModifier {
-	return f()
-}
-
-type collection[T any]
