@@ -1,4 +1,4 @@
-package ezddb
+package operation
 
 import (
 	"context"
@@ -6,12 +6,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
-
-// Getter implements the dynamodb Get API.
-type Getter interface {
-	GetItem(context.Context, *dynamodb.GetItemInput, ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error)
-}
 
 // GetOperation functions generate dynamodb put input data given some context.
 type GetOperation func(context.Context) (*dynamodb.GetItemInput, error)
@@ -47,7 +43,7 @@ func (p GetOperation) Modify(modifiers ...GetModifier) GetOperation {
 
 // Execute executes the Operation, returning the API result.
 func (g GetOperation) Execute(ctx context.Context,
-	getter Getter, options ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
+	getter ezddb.Getter, options ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	if input, err := g.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

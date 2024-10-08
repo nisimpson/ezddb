@@ -1,16 +1,12 @@
-package ezddb
+package operation
 
 import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
-
-// BatchGetter implements the dynamodb Batch Get API.
-type BatchGetter interface {
-	BatchGetItem(context.Context, *dynamodb.BatchGetItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error)
-}
 
 // BatchGetOperation functions generate dynamodb put input data given some context.
 type BatchGetOperation func(context.Context) (*dynamodb.BatchGetItemInput, error)
@@ -48,7 +44,7 @@ func (b BatchGetOperation) Modify(modifiers ...BatchGetModifier) BatchGetOperati
 
 // Execute executes the Operation, returning the API result.
 func (b BatchGetOperation) Execute(ctx context.Context,
-	getter BatchGetter, options ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
+	getter ezddb.BatchGetter, options ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

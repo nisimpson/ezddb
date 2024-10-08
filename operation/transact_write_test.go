@@ -1,4 +1,4 @@
-package ezddb_test
+package operation_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,8 +38,8 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteOperation {
-	transaction := ezddb.NewTransactionWriteOperation()
+func (t table) updateCustomers(customers ...customer) operation.TransactionWriteOperation {
+	transaction := operation.NewTransactionWriteOperation()
 	for _, c := range customers {
 		transaction = transaction.Modify(t.updateCustomer(c))
 	}
@@ -48,7 +49,7 @@ func (t table) updateCustomers(customers ...customer) ezddb.TransactionWriteOper
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.TransactionWriteOperation
+		Operation operation.TransactionWriteOperation
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
@@ -121,7 +122,7 @@ func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactWriter ezddb.TransactionWriter
-		Operation      ezddb.TransactionWriteOperation
+		Operation      operation.TransactionWriteOperation
 		wantErr        bool
 	}
 
@@ -164,20 +165,20 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.TransactionWriteOperation
-		modifier  ezddb.TransactionWriteModifier
+		Operation operation.TransactionWriteOperation
+		modifier  operation.TransactionWriteModifier
 		wantInput dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := ezddb.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifier := operation.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		input.ClientRequestToken = aws.String("token")
 		return nil
 	})
 
-	modifierFails := ezddb.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifierFails := operation.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		return ErrMock
 	})
 

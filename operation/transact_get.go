@@ -1,4 +1,4 @@
-package ezddb
+package operation
 
 import (
 	"context"

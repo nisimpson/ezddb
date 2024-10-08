@@ -1,4 +1,4 @@
-package ezddb
+package operation
 
 import (
 	"context"
@@ -6,12 +6,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
-
-// Deleter implements the dynamodb Delete API.
-type Deleter interface {
-	DeleteItem(context.Context, *dynamodb.DeleteItemInput, ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error)
-}
 
 // DeleteOperation functions generate dynamodb put input data given some context.
 type DeleteOperation func(context.Context) (*dynamodb.DeleteItemInput, error)
@@ -47,7 +43,7 @@ func (d DeleteOperation) Modify(modifiers ...DeleteModifier) DeleteOperation {
 
 // Execute executes the Operation, returning the API result.
 func (d DeleteOperation) Execute(ctx context.Context,
-	deleter Deleter, options ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
+	deleter ezddb.Deleter, options ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	if input, err := d.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

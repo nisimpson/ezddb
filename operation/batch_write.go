@@ -1,16 +1,12 @@
-package ezddb
+package operation
 
 import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
-
-// BatchWriter implements the dynamodb Batch Write API.
-type BatchWriter interface {
-	BatchWriteItem(context.Context, *dynamodb.BatchWriteItemInput, ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error)
-}
 
 // BatchWriteOperation functions generate dynamodb put input data given some context.
 type BatchWriteOperation func(context.Context) (*dynamodb.BatchWriteItemInput, error)
@@ -48,7 +44,7 @@ func (b BatchWriteOperation) Modify(modifiers ...BatchWriteModifier) BatchWriteO
 
 // Execute executes the Operation, returning the API result.
 func (b BatchWriteOperation) Execute(ctx context.Context,
-	writer BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
+	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

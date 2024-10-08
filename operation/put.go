@@ -1,4 +1,4 @@
-package ezddb
+package operation
 
 import (
 	"context"
@@ -6,12 +6,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 )
-
-// Putter implements the dynamodb Put API.
-type Putter interface {
-	PutItem(context.Context, *dynamodb.PutItemInput, ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error)
-}
 
 // PutOperation functions generate dynamodb put input data given some context.
 type PutOperation func(context.Context) (*dynamodb.PutItemInput, error)
@@ -46,7 +42,7 @@ func (p PutOperation) Modify(modifiers ...PutModifier) PutOperation {
 }
 
 // Execute executes the Operation, returning the API result.
-func (p PutOperation) Execute(ctx context.Context, putter Putter, options ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
+func (p PutOperation) Execute(ctx context.Context, putter ezddb.Putter, options ...func(*dynamodb.Options)) (*dynamodb.PutItemOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

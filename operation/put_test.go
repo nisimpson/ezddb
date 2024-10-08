@@ -1,4 +1,4 @@
-package ezddb_test
+package operation_test
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +39,7 @@ func (p putter) fails() putter {
 	return p
 }
 
-func (t table) putCustomer(c customer) ezddb.PutOperation {
+func (t table) putCustomer(c customer) operation.PutOperation {
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -54,7 +55,7 @@ func (t table) putCustomer(c customer) ezddb.PutOperation {
 func TestPutInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.PutOperation
+		Operation operation.PutOperation
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
 	}
@@ -97,7 +98,7 @@ func TestPutExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		putter    ezddb.Putter
-		Operation ezddb.PutOperation
+		Operation operation.PutOperation
 		wantErr   bool
 	}
 
@@ -140,20 +141,20 @@ func TestPutExecute(t *testing.T) {
 func TestPutModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.PutOperation
-		modifier  ezddb.PutModifier
+		Operation operation.PutOperation
+		modifier  operation.PutModifier
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := ezddb.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
+	modifier := operation.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
 		input.Item["modified"] = &types.AttributeValueMemberBOOL{Value: true}
 		return nil
 	})
 
-	modifierFails := ezddb.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
+	modifierFails := operation.PutModifierFunc(func(ctx context.Context, input *dynamodb.PutItemInput) error {
 		return ErrMock
 	})
 
@@ -202,7 +203,7 @@ func TestPutModify(t *testing.T) {
 func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		Operation  ezddb.PutOperation
+		Operation  operation.PutOperation
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -262,7 +263,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 		{
 			name: "returns error if table name is missing",
 			Operation: table.putCustomer(customer{ID: "123", Name: "John Doe"}).Modify(
-				ezddb.PutModifierFunc(
+				operation.PutModifierFunc(
 					func(ctx context.Context, input *dynamodb.PutItemInput) error {
 						input.TableName = nil
 						return nil
@@ -289,7 +290,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		Operation     ezddb.PutOperation
+		Operation     operation.PutOperation
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

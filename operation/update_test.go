@@ -1,4 +1,4 @@
-package ezddb_test
+package operation_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,7 +38,7 @@ func (p updater) fails() updater {
 	return p
 }
 
-func (t table) updateCustomer(c customer) ezddb.UpdateOperation {
+func (t table) updateCustomer(c customer) operation.UpdateOperation {
 	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -61,7 +62,7 @@ func (t table) updateCustomer(c customer) ezddb.UpdateOperation {
 func TestUpdateInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.UpdateOperation
+		Operation operation.UpdateOperation
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
@@ -110,7 +111,7 @@ func TestUpdateExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		updater   ezddb.Updater
-		Operation ezddb.UpdateOperation
+		Operation operation.UpdateOperation
 		wantErr   bool
 	}
 
@@ -153,20 +154,20 @@ func TestUpdateExecute(t *testing.T) {
 func TestUpdateModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.UpdateOperation
-		modifier  ezddb.UpdateModifier
+		Operation operation.UpdateOperation
+		modifier  operation.UpdateModifier
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := ezddb.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	modifier := operation.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 		input.Key["modified"] = &types.AttributeValueMemberBOOL{Value: true}
 		return nil
 	})
 
-	modifierFails := ezddb.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	modifierFails := operation.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 		return ErrMock
 	})
 
@@ -221,7 +222,7 @@ func TestUpdateModify(t *testing.T) {
 func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		Operation     ezddb.UpdateOperation
+		Operation     operation.UpdateOperation
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

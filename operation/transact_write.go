@@ -1,16 +1,11 @@
-package ezddb
+package operation
 
 import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/nisimpson/ezddb"
 )
-
-// TransactionWriter implements the dynamodb Transact Write API.
-type TransactionWriter interface {
-	TransactWriteItems(context.Context,
-		*dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
-}
 
 // TransactionWriteOperation functions generate dynamodb input data given some context.
 type TransactionWriteOperation func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
@@ -53,7 +48,7 @@ func (t TransactionWriteOperation) Modify(modifiers ...TransactionWriteModifier)
 
 // Execute executes the Operation, returning the API result.
 func (t TransactionWriteOperation) Execute(ctx context.Context,
-	writer TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {
 		return nil, err
 	} else {

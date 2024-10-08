@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 )
 
 var (
@@ -21,28 +22,25 @@ var (
 const (
 	AttributePartitionKey           = "pk"
 	AttributeSortKey                = "sk"
-	AttributeRelation               = "relation"
+	AttributeItemType               = "item_type"
 	AttributeCollectionQuerySortKey = "gsi2_sk"
 	AttributeReverseLookupSortKey   = "gsi1_sk"
 )
 
-type Node interface {
-	DynamoGraphNodeID() string
-	DynamoGraphNodePrefix() string
-	DynamoGraphRelation() string
-	DynamoGraphMarshal(createdAt, updatedAt time.Time) error
-	DynamoGraphUnmarshal(createdAt, updatedAt time.Time) error
-	DynamoGraphRelationships() map[string][]Node
+type Data interface {
+	DynamoID() string
+	DynamoPrefix() string
+	DynamoItemType() string
+	DynamoMarshal(createdAt, updatedAt time.Time) error
+	DynamoUnmarshal(createdAt, updatedAt time.Time) error
+	DynamoUnmarshalRef(relation string, refID string) error
+	DynamoRelationships() map[string][]Data
 }
 
-type EdgeIdentifier interface {
-	EdgeID() (pk string, sk string)
-}
-
-type Item[T Node] struct {
+type Item[T Data] struct {
 	PK        string    `dynamodbav:"pk"`
 	SK        string    `dynamodbav:"sk"`
-	Relation  string    `dynamodbav:"relation"`
+	ItemType  string    `dynamodbav:"item_type"`
 	GSI1SK    string    `dynamodbav:"gsi1_sk"`
 	GSI2SK    string    `dynamodbav:"gsi2_sk"`
 	CreatedAt time.Time `dynamodbav:"created_at"`
@@ -53,25 +51,26 @@ type Item[T Node] struct {
 
 type Clock func() time.Time
 
-type EdgeOptions struct {
+type ItemOptions struct {
 	HashID                     string
 	HashPrefix                 string
 	SortID                     string
 	SortPrefix                 string
-	Relation                   string
+	ItemType                   string
 	SupportsReverseLookupIndex bool
 	SupportsCollectionIndex    bool
 	Tick                       Clock
 	ExpirationDate             time.Time
 }
 
-func NewItem[T Node](node T, opts ...func(*EdgeOptions)) Item[T] {
-	options := EdgeOptions{
+func NewItem[T Data](data T, opts ...func(*ItemOptions)) Item[T] {
+	options := ItemOptions{
 		Tick:                       time.Now,
-		HashID:                     node.DynamoGraphNodeID(),
-		HashPrefix:                 node.DynamoGraphNodePrefix(),
-		SortID:                     node.DynamoGraphNodeID(),
-		SortPrefix:                 node.DynamoGraphNodePrefix(),
+		HashID:                     data.DynamoID(),
+		HashPrefix:                 data.DynamoPrefix(),
+		SortID:                     data.DynamoID(),
+		SortPrefix:                 data.DynamoPrefix(),
+		ItemType:                   data.DynamoItemType(),
 		SupportsReverseLookupIndex: true,
 		SupportsCollectionIndex:    true,
 	}
@@ -85,7 +84,7 @@ func NewItem[T Node](node T, opts ...func(*EdgeOptions)) Item[T] {
 	edge := Item[T]{
 		PK:        options.HashPrefix + ":" + options.HashID,
 		SK:        options.SortPrefix + ":" + options.SortID,
-		Relation:  options.Relation,
+		ItemType:  options.ItemType,
 		CreatedAt: now,
 		UpdatedAt: now,
 		Expires:   options.ExpirationDate,
@@ -103,58 +102,37 @@ func NewItem[T Node](node T, opts ...func(*EdgeOptions)) Item[T] {
 }
 
 type ItemRef struct {
-	NodeID     string
-	NodePrefix string
-	EdgeID     string
+	HashID     string
+	HashPrefix string
+	SortID     string
+	SortPrefix string
 	Relation   string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
 }
 
-func (n *ItemRef) DynamoGraphNodeID() string {
-	return n.NodeID
-}
+func (n *ItemRef) DynamoID() string                                   { return n.HashID }
+func (n *ItemRef) DynamoPrefix() string                               { return n.HashPrefix }
+func (n *ItemRef) DynamoItemType() string                             { return n.Relation }
+func (*ItemRef) DynamoMarshal(createdAt, updatedAt time.Time) error   { return nil }
+func (*ItemRef) DynamoUnmarshal(createdAt, updatedAt time.Time) error { return nil }
+func (*ItemRef) DynamoRelationships() map[string][]Data               { return nil }
+func (*ItemRef) DynamoUnmarshalRef(string, string) error              { return nil }
 
-func (n *ItemRef) DynamoGraphNodePrefix() string {
-	return n.NodePrefix
-}
-
-func (n *ItemRef) DynamoGraphRelation() string {
-	return n.Relation
-}
-
-func (n *ItemRef) DynamoGraphMarshal(createdAt, updatedAt time.Time) error {
-	n.CreatedAt = createdAt
-	n.UpdatedAt = updatedAt
-	return nil
-}
-
-func (n *ItemRef) DynamoGraphUnmarshal(createdAt, updatedAt time.Time) error {
-	n.CreatedAt = createdAt
-	n.UpdatedAt = updatedAt
-	return nil
-}
-
-func (n *ItemRef) DynamoGraphRelationships() map[string][]Node {
-	return nil
-}
-
-func (e Item[T]) ref(node Node, relation string) Item[*ItemRef] {
-	ref := &ItemRef{
-		NodeID:     e.Data.DynamoGraphNodeID(),
-		NodePrefix: e.Data.DynamoGraphNodePrefix(),
+func newItemRef(src, tgt Data, relation string) Item[*ItemRef] {
+	return NewItem(&ItemRef{
+		HashID:     tgt.DynamoID(),
+		SortID:     src.DynamoID(),
+		HashPrefix: tgt.DynamoPrefix(),
+		SortPrefix: src.DynamoPrefix(),
 		Relation:   relation,
-	}
-	return NewItem(ref, func(eo *EdgeOptions) {
-		eo.SortID = node.DynamoGraphNodeID()
-		eo.SortPrefix = node.DynamoGraphNodePrefix()
-		eo.SupportsReverseLookupIndex = true
-		eo.SupportsCollectionIndex = false
+	}, func(io *ItemOptions) {
+		io.ItemType = fmt.Sprintf("ref:%s", relation)
+		io.SupportsCollectionIndex = false
+		io.SupportsReverseLookupIndex = true
 	})
 }
 
 func (e Item[T]) Refs() []Item[*ItemRef] {
-	relationships := e.Data.DynamoGraphRelationships()
+	relationships := e.Data.DynamoRelationships()
 	if len(relationships) == 0 {
 		return nil
 	}
@@ -162,7 +140,7 @@ func (e Item[T]) Refs() []Item[*ItemRef] {
 	refs := make([]Item[*ItemRef], 0, len(relationships))
 	for name, nodes := range relationships {
 		for _, node := range nodes {
-			refs = append(refs, e.ref(node, name))
+			refs = append(refs, newItemRef(e.Data, node, name))
 		}
 	}
 	return refs
@@ -172,74 +150,28 @@ func (e Item[T]) IsNode() bool {
 	return e.PK == e.SK
 }
 
-func (e Item[T]) EdgeID() (string, string) {
-	return e.PK, e.SK
+func (e Item[T]) TableRowKey() ezddb.Item {
+	return newItemKey(e.PK, e.SK)
 }
 
-func (e Item[T]) TableRowKey() ezddb.TableRow {
-	return tableRowKey(e.PK, e.SK)
-}
-
-func (e *Item[T]) Marshal(m ezddb.RowMarshaler) (ezddb.TableRow, error) {
-	err := e.Data.DynamoGraphMarshal(e.CreatedAt, e.UpdatedAt)
+func (e *Item[T]) Marshal(m ezddb.ItemMarshaler) (ezddb.Item, error) {
+	err := e.Data.DynamoMarshal(e.CreatedAt, e.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return m(e)
 }
 
-func (e *Item[T]) Unmarshal(r ezddb.TableRow, u ezddb.RowUnmarshaler) error {
+func (e *Item[T]) Unmarshal(r ezddb.Item, u ezddb.ItemUnmarshaler) error {
 	err := u(r, e)
 	if err != nil {
 		return err
 	}
-	return e.Data.DynamoGraphUnmarshal(e.CreatedAt, e.UpdatedAt)
-}
-
-type EdgeVisitor interface {
-	VisitEdge(ctx context.Context, row ezddb.TableRow) error
-}
-
-type EdgeVisitorFunc func(ctx context.Context, row ezddb.TableRow) error
-
-func (f EdgeVisitorFunc) VisitEdge(ctx context.Context, row ezddb.TableRow) error {
-	return f(ctx, row)
-}
-
-type NodeVisitor struct {
-	mux map[string]EdgeVisitor
-}
-
-func NewNodeVisitor() *NodeVisitor {
-	return &NodeVisitor{
-		mux: make(map[string]EdgeVisitor),
-	}
-}
-
-func (v *NodeVisitor) AddRelation(relation string, visitor EdgeVisitor) *NodeVisitor {
-	v.mux[relation] = visitor
-	return v
-}
-
-func (v NodeVisitor) VisitEdge(ctx context.Context, row ezddb.TableRow) error {
-	relation := row[AttributeRelation].(*types.AttributeValueMemberS).Value
-	visitor, ok := v.mux[relation]
-	if !ok {
-		return fmt.Errorf("no visitor found for relation %s", relation)
-	}
-	return visitor.VisitEdge(ctx, row)
+	return e.Data.DynamoUnmarshal(e.CreatedAt, e.UpdatedAt)
 }
 
 type ConditionFilterProvider interface {
 	FilterCondition(ctx context.Context, base expression.ConditionBuilder) expression.ConditionBuilder
-}
-
-type DynamoClient interface {
-	ezddb.Querier
-	ezddb.Putter
-	ezddb.Getter
-	ezddb.BatchWriter
-	ezddb.BatchGetter
 }
 
 type Options struct {
@@ -249,13 +181,13 @@ type Options struct {
 	CollectionQueryIndexName string
 	ReverseLookupIndexName   string
 	BuildExpression          ExpressionBuilder
-	MarshalEdge              ezddb.RowMarshaler
-	UnmarshalEdge            ezddb.RowUnmarshaler
+	MarshalItem              ezddb.ItemMarshaler
+	UnmarshalItem            ezddb.ItemUnmarshaler
 }
 
 type OptionsFunc = func(*Options)
 
-func (o *Options) apply(opts ...OptionsFunc) {
+func (o *Options) apply(opts []OptionsFunc) {
 	for _, opt := range opts {
 		opt(o)
 	}
@@ -270,154 +202,192 @@ func New(tableName string, opts ...OptionsFunc) *Graph {
 		CollectionQueryIndexName: "collection-query-index",
 		ReverseLookupIndexName:   "reverse-lookup-index",
 		BuildExpression:          buildExpression,
-		MarshalEdge:              attributevalue.MarshalMap,
-		UnmarshalEdge:            attributevalue.UnmarshalMap,
+		MarshalItem:              attributevalue.MarshalMap,
+		UnmarshalItem:            attributevalue.UnmarshalMap,
 	}
-	options.apply(opts...)
+	options.apply(opts)
 	return &Graph{Options: options}
 }
 
-type QueryNodesInput struct {
-	relation          string
-	PageCursor        string
-	Limit             Limit
-	CreatedAfterDate  time.Time
-	CreatedBeforeDate time.Time
-	Filter            ConditionFilterProvider
-	SortAscending     bool
+type NodeCollectionIndexQuery struct {
+	CollectionItemType string
+	PageCursor         string
+	Limit              Limit
+	CreatedAfterDate   time.Time
+	CreatedBeforeDate  time.Time
+	Filter             ConditionFilterProvider
+	SortAscending      bool
+	graph              Graph
 }
 
-func QueryNodes(ctx context.Context, g Graph, input QueryNodesInput, opts ...OptionsFunc) ezddb.QueryOperation {
-	g.Options.apply(opts...)
+func (g Graph) NodeCollectionIndexQuery(itemType string, opts ...func(*NodeCollectionIndexQuery)) NodeCollectionIndexQuery {
+	q := NodeCollectionIndexQuery{CollectionItemType: itemType, graph: g}
+	q.apply(opts)
+	return q
+}
 
+func (q *NodeCollectionIndexQuery) apply(opts []func(*NodeCollectionIndexQuery)) {
+	for _, opt := range opts {
+		opt(q)
+	}
+}
+
+func (q NodeCollectionIndexQuery) Operation(opts ...OptionsFunc) operation.QueryOperation {
+	q.graph.apply(opts)
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		expressionBuilder := expression.NewBuilder().
-			WithKeyCondition(edgesCreatedBetween(input.relation, input.CreatedAfterDate, input.CreatedBeforeDate))
+			WithKeyCondition(edgesCreatedBetween(q.CollectionItemType, q.CreatedAfterDate, q.CreatedBeforeDate))
 
 		condition := expression.ConditionBuilder{}
-		if input.Filter != nil {
-			condition = input.Filter.FilterCondition(ctx, condition)
+		if q.Filter != nil {
+			condition = q.Filter.FilterCondition(ctx, condition)
 		}
 
 		if condition.IsSet() {
 			expressionBuilder = expressionBuilder.WithFilter(condition)
 		}
 
-		expr, err := g.BuildExpression(expressionBuilder)
+		expr, err := q.graph.BuildExpression(expressionBuilder)
 		if err != nil {
 			return nil, fmt.Errorf("build expression failed: %w", err)
 		}
 
-		startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
+		startKey, err := ezddb.GetStartKey(ctx, q.graph, q.PageCursor)
 		if err != nil {
 			return nil, fmt.Errorf("start key failed: %w", err)
 		}
 
 		return &dynamodb.QueryInput{
-			TableName:                 &g.TableName,
-			IndexName:                 &g.CollectionQueryIndexName,
+			TableName:                 &q.graph.TableName,
+			IndexName:                 &q.graph.CollectionQueryIndexName,
 			KeyConditionExpression:    expr.KeyCondition(),
 			FilterExpression:          expr.Filter(),
 			ExpressionAttributeNames:  expr.Names(),
 			ExpressionAttributeValues: expr.Values(),
 			ExclusiveStartKey:         startKey,
-			Limit:                     input.Limit.Value(),
-			ScanIndexForward:          aws.Bool(input.SortAscending),
+			Limit:                     q.Limit.Value(),
+			ScanIndexForward:          aws.Bool(q.SortAscending),
 		}, nil
 	}
 }
 
-func VisitNodes[T Node](ctx context.Context, g Graph, output *dynamodb.QueryOutput) ([]T, string, error) {
-	nextToken, err := ezddb.GetStartKeyToken(ctx, g, output.LastEvaluatedKey)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get start key token: %w", err)
-	}
+func UnmarshalCollection[T Data](ctx context.Context, items []ezddb.Item, opts ...OptionsFunc) ([]T, error) {
+	options := Options{UnmarshalItem: attributevalue.UnmarshalMap}
+	options.apply(opts)
 
-	nodes := make([]T, 0, len(output.Items))
-	for _, item := range output.Items {
+	nodes := make([]T, 0, len(items))
+	for _, item := range items {
 		node := Item[T]{}
-		err := node.Unmarshal(item, g.UnmarshalEdge)
+		err := node.Unmarshal(item, options.UnmarshalItem)
 		if err != nil {
-			return nil, "", fmt.Errorf("failed to unmarshal node: %w", err)
+			return nil, fmt.Errorf("failed to unmarshal node: %w", err)
 		}
 		nodes = append(nodes, node.Data)
 	}
 
-	return nodes, nextToken, nil
+	return nodes, nil
 }
 
-type QueryEdgesInput struct {
+type NodePartitionQuery struct {
 	NodeID        string
-	EdgePrefix    string
+	NodePrefix    string
 	ReverseLookup bool
 	Limit         Limit
 	PageCursor    string
 	Filter        ConditionFilterProvider
+	graph         Graph
 }
 
-func QueryNode(ctx context.Context, g Graph, input QueryEdgesInput, opts ...OptionsFunc) ezddb.QueryOperation {
-	g.Options.apply(opts...)
+func (g Graph) NodePartitionQuery(hashPrefix, hashID string, opts ...func(*NodePartitionQuery)) NodePartitionQuery {
+	q := NodePartitionQuery{NodeID: hashID, NodePrefix: hashPrefix, graph: g}
+	q.apply(opts)
+	return q
+}
+
+func (p *NodePartitionQuery) apply(opts []func(*NodePartitionQuery)) {
+	for _, opt := range opts {
+		opt(p)
+	}
+}
+
+func (q NodePartitionQuery) Operation(opts ...OptionsFunc) operation.QueryOperation {
+	q.graph.apply(opts)
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		expressionBuilder := expression.NewBuilder().
-			WithKeyCondition(nodeEdgesWithPrefix(input.NodeID, input.EdgePrefix))
+			WithKeyCondition(nodeEdgesWithPrefix(q.NodeID, q.NodePrefix))
 
-		if input.ReverseLookup {
+		var indexName *string
+		if q.ReverseLookup {
+			indexName = &q.graph.ReverseLookupIndexName
 			expressionBuilder = expressionBuilder.WithKeyCondition(
-				reverseNodeEdgesWithPrefix(input.NodeID, input.EdgePrefix))
+				reverseNodeEdgesWithPrefix(q.NodeID, q.NodePrefix))
 		}
 
 		condition := expression.ConditionBuilder{}
-		if input.Filter != nil {
-			condition = input.Filter.FilterCondition(ctx, condition)
+		if q.Filter != nil {
+			condition = q.Filter.FilterCondition(ctx, condition)
 		}
 
 		if condition.IsSet() {
 			expressionBuilder = expressionBuilder.WithFilter(condition)
 		}
 
-		expr, err := g.BuildExpression(expressionBuilder)
+		expr, err := q.graph.BuildExpression(expressionBuilder)
 		if err != nil {
 			return nil, fmt.Errorf("build expression failed: %w", err)
 		}
 
-		startKey, err := ezddb.GetStartKey(ctx, g, input.PageCursor)
+		startKey, err := ezddb.GetStartKey(ctx, q.graph, q.PageCursor)
 		if err != nil {
 			return nil, fmt.Errorf("start key failed: %w", err)
 		}
 
 		return &dynamodb.QueryInput{
-			TableName:                 &g.TableName,
+			TableName:                 &q.graph.TableName,
+			IndexName:                 indexName,
 			KeyConditionExpression:    expr.KeyCondition(),
 			FilterExpression:          expr.Filter(),
 			ExpressionAttributeNames:  expr.Names(),
 			ExpressionAttributeValues: expr.Values(),
 			ExclusiveStartKey:         startKey,
-			Limit:                     input.Limit.Value(),
+			Limit:                     q.Limit.Value(),
 		}, nil
 	}
 }
 
-func VisitNode(ctx context.Context, g Graph, visitor EdgeVisitor, output *dynamodb.QueryOutput) (string, error) {
-	nextToken, err := ezddb.GetStartKeyToken(ctx, g, output.LastEvaluatedKey)
-	if err != nil {
-		return "", fmt.Errorf("failed to get start key token: %w", err)
-	}
-	for _, item := range output.Items {
-		err := visitor.VisitEdge(ctx, item)
-		if err != nil {
-			return "", fmt.Errorf("visit edge failed: %w", err)
+func UnmarshalPartition[T Data](ctx context.Context, data T, items []ezddb.Item, opts ...OptionsFunc) (T, error) {
+	options := Options{UnmarshalItem: attributevalue.UnmarshalMap}
+	options.apply(opts)
+
+	node := NewItem(data)
+	errs := make([]error, 0, len(items))
+	for _, item := range items {
+		itemType := item[AttributeItemType].(*types.AttributeValueMemberS).Value
+		if itemType == node.ItemType {
+			errs = append(errs, node.Unmarshal(item, options.UnmarshalItem))
+			continue
 		}
+		ref := Item[*ItemRef]{}
+		if err := ref.Unmarshal(item, options.UnmarshalItem); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		relation := ref.Data.Relation
+		refID := ref.Data.HashID
+		err := node.Data.DynamoUnmarshalRef(relation, refID)
+		errs = append(errs, err)
 	}
-	return nextToken, nil
+	return node.Data, errors.Join(errs...)
 }
 
-type PuttableEdge interface {
-	Marshal(ezddb.RowMarshaler) (ezddb.TableRow, error)
+type PuttableItem interface {
+	Marshal(ezddb.ItemMarshaler) (ezddb.Item, error)
 }
 
-func PutEdge(g Graph, edge PuttableEdge) ezddb.PutOperation {
+func (g Graph) PutItemOperation(item PuttableItem, opts ...OptionsFunc) operation.PutOperation {
+	g.apply(opts)
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
-		item, err := edge.Marshal(g.MarshalEdge)
+		item, err := item.Marshal(g.MarshalItem)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal edge: %w", err)
 		}
@@ -428,12 +398,17 @@ func PutEdge(g Graph, edge PuttableEdge) ezddb.PutOperation {
 	}
 }
 
-func GetEdge(g Graph, id EdgeIdentifier) ezddb.GetOperation {
+type Identifier interface {
+	DynamoPrimaryKey() (pk string, sk string)
+}
+
+func (g Graph) GetItemOperation(id Identifier, opts ...OptionsFunc) operation.GetOperation {
+	g.apply(opts)
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
-		pk, sk := id.EdgeID()
+		pk, sk := id.DynamoPrimaryKey()
 		return &dynamodb.GetItemInput{
 			TableName: &g.TableName,
-			Key:       tableRowKey(pk, sk),
+			Key:       newItemKey(pk, sk),
 		}, nil
 	}
 }
@@ -453,8 +428,8 @@ func (l Limit) Value() *int32 {
 	return nil
 }
 
-func tableRowKey(pk, sk string) ezddb.TableRow {
-	return ezddb.TableRow{
+func newItemKey(pk, sk string) ezddb.Item {
+	return ezddb.Item{
 		AttributePartitionKey: &types.AttributeValueMemberS{Value: pk},
 		AttributeSortKey:      &types.AttributeValueMemberS{Value: sk},
 	}

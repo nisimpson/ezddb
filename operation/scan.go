@@ -1,15 +1,11 @@
-package ezddb
+package operation
 
 import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/nisimpson/ezddb"
 )
-
-// Scanner implements the dynamodb Scan API.
-type Scanner interface {
-	Scan(context.Context, *dynamodb.ScanInput, ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
-}
 
 // ScanOperation functions generate dynamodb scan input data given some context.
 type ScanOperation func(context.Context) (*dynamodb.ScanInput, error)
@@ -38,7 +34,7 @@ func (p ScanOperation) Modify(modifiers ...ScanModifier) ScanOperation {
 
 // Execute executes the Operation, returning the API result.
 func (p ScanOperation) Execute(ctx context.Context,
-	Scanner Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+	Scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
 	} else {
@@ -52,10 +48,10 @@ func (p ScanOperation) Execute(ctx context.Context,
 type PageScanCallback = func(context.Context, *dynamodb.ScanOutput) bool
 
 // WithPagination creates a new Operation that exhastively retrieves items from the
-// database using the initial ezddb. Use the callback to access data from each
+// database using the initial operation. Use the callback to access data from each
 // response.
 func (p ScanOperation) WithPagination(callback PageScanCallback) ScanExecutor {
-	return func(ctx context.Context, scanner Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+	return func(ctx context.Context, scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {
 			return nil, err
@@ -75,10 +71,10 @@ func (p ScanOperation) WithPagination(callback PageScanCallback) ScanExecutor {
 }
 
 // ScanExecutor functions execute the dynamoDB scan items API.
-type ScanExecutor func(context.Context, Scanner, ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
+type ScanExecutor func(context.Context, ezddb.Scanner, ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
 
 // Execute invokes the scan items API using the provided scanner and options.
 func (s ScanExecutor) Execute(ctx context.Context,
-	scanner Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
+	scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 	return s(ctx, scanner, options...)
 }

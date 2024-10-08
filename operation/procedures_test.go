@@ -1,10 +1,10 @@
-package ezddb_test
+package operation_test
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 )
 
 var ErrMock = errors.New("mock error")
@@ -39,5 +39,5 @@ func (t table) failsTo() table {
 
 type fixture struct {
 	t *testing.T
-	ezddb.PutModifier
+	operation.PutModifier
 }

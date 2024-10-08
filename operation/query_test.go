@@ -1,4 +1,4 @@
-package ezddb_test
+package operation_test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/operation"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,7 +38,7 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) ezddb.QueryOperation {
+func (t table) queryCustomerName(name string) operation.QueryOperation {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -58,7 +59,7 @@ func (t table) queryCustomerName(name string) ezddb.QueryOperation {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.QueryOperation
+		Operation operation.QueryOperation
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -104,7 +105,7 @@ func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		querier   ezddb.Querier
-		Operation ezddb.QueryOperation
+		Operation operation.QueryOperation
 		wantErr   bool
 	}
 
@@ -147,20 +148,20 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation ezddb.QueryOperation
-		modifier  ezddb.QueryModifier
+		Operation operation.QueryOperation
+		modifier  operation.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := ezddb.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifier := operation.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		input.IndexName = aws.String("query-index")
 		return nil
 	})
 
-	modifierFails := ezddb.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifierFails := operation.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		return ErrMock
 	})
 

@@ -1,10 +1,11 @@
-package ezddb
+package operation
 
 import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/nisimpson/ezddb"
 )
 
 type withLimit int32
@@ -36,7 +37,7 @@ func WithLimit(value int) withLimit {
 }
 
 type withLastToken struct {
-	provider StartKeyProvider
+	provider ezddb.StartKeyProvider
 	token    string
 }
 
@@ -61,8 +62,8 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 }
 
 // WithLastToken creates a new input modifier for adding pagination tokens to scan or query
-// ezddb.
-func WithLastToken(token string, provider StartKeyProvider) withLastToken {
+// operation.
+func WithLastToken(token string, provider ezddb.StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
 }
 
