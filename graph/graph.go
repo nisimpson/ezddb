@@ -25,9 +25,12 @@ const (
 	AttributeItemType               = "item_type"
 	AttributeCollectionQuerySortKey = "gsi2_sk"
 	AttributeReverseLookupSortKey   = "gsi1_sk"
+	AttributeUpdatedAt              = "updated_at"
 )
 
 type Data interface {
+	DynamoHashKey() string
+	DynamoSortKey() string
 	DynamoID() string
 	DynamoPrefix() string
 	DynamoItemType() string
@@ -183,6 +186,7 @@ type Options struct {
 	BuildExpression          ExpressionBuilder
 	MarshalItem              ezddb.ItemMarshaler
 	UnmarshalItem            ezddb.ItemUnmarshaler
+	Tick                     Clock
 }
 
 type OptionsFunc = func(*Options)
@@ -204,6 +208,7 @@ func New(tableName string, opts ...OptionsFunc) *Graph {
 		BuildExpression:          buildExpression,
 		MarshalItem:              attributevalue.MarshalMap,
 		UnmarshalItem:            attributevalue.UnmarshalMap,
+		Tick:                     time.Now,
 	}
 	options.apply(opts)
 	return &Graph{Options: options}
