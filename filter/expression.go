@@ -2,6 +2,7 @@ package filter
 
 import (
 	"fmt"
+	"strings"
 )
 
 type operation string
@@ -49,9 +50,14 @@ func (b betweenCriteria) String() string {
 	return fmt.Sprintf("between('%s','%v','%v')", b.attribute, b.left, b.right)
 }
 
-type Attribute[T any] string
+type attribute[T any] string
 
-func Equals[T any, U any](a Attribute[T], value U) Expression {
+func AttributeOf[T any](key ...string) attribute[T] {
+	path := strings.Join(key, ".")
+	return attribute[T](path)
+}
+
+func Equals[T any, U any](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationEqual,
@@ -59,7 +65,7 @@ func Equals[T any, U any](a Attribute[T], value U) Expression {
 	})
 }
 
-func NotEquals[T any, U any](a Attribute[T], value U) Expression {
+func NotEquals[T any, U any](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationNotEqual,
@@ -67,7 +73,7 @@ func NotEquals[T any, U any](a Attribute[T], value U) Expression {
 	})
 }
 
-func LessThan[T any, U comparable](a Attribute[T], value U) Expression {
+func LessThan[T any, U comparable](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationLessThan,
@@ -75,7 +81,7 @@ func LessThan[T any, U comparable](a Attribute[T], value U) Expression {
 	})
 }
 
-func LessThanEqual[T any, U comparable](a Attribute[T], value U) Expression {
+func LessThanEqual[T any, U comparable](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationLessThanEqual,
@@ -83,7 +89,7 @@ func LessThanEqual[T any, U comparable](a Attribute[T], value U) Expression {
 	})
 }
 
-func GreaterThan[T any, U comparable](a Attribute[T], value U) Expression {
+func GreaterThan[T any, U comparable](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationGreaterThanEqual,
@@ -91,7 +97,7 @@ func GreaterThan[T any, U comparable](a Attribute[T], value U) Expression {
 	})
 }
 
-func GreaterThanEqual[T any, U comparable](a Attribute[T], value U) Expression {
+func GreaterThanEqual[T any, U comparable](a attribute[T], value U) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationGreaterThanEqual,
@@ -99,21 +105,21 @@ func GreaterThanEqual[T any, U comparable](a Attribute[T], value U) Expression {
 	})
 }
 
-func Exists[T any](a Attribute[T]) Expression {
+func Exists[T any](a attribute[T]) Expression {
 	return newBuilder(unaryCriteria{
 		attribute: string(a),
 		operation: OperationExists,
 	})
 }
 
-func NotExists[T any](a Attribute[T]) Expression {
+func NotExists[T any](a attribute[T]) Expression {
 	return newBuilder(unaryCriteria{
 		attribute: string(a),
 		operation: OperationNotExists,
 	})
 }
 
-func HasSubstring[T any](a Attribute[T], substr string) Expression {
+func HasSubstring[T any](a attribute[T], substr string) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationContains,
@@ -121,7 +127,7 @@ func HasSubstring[T any](a Attribute[T], substr string) Expression {
 	})
 }
 
-func Contains[T any, U any](a Attribute[T], items ...U) Expression {
+func Contains[T any, U any](a attribute[T], items ...U) Expression {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
@@ -140,7 +146,7 @@ func Contains[T any, U any](a Attribute[T], items ...U) Expression {
 	return curr
 }
 
-func Intersects[T any, U any](a Attribute[T], items ...U) Expression {
+func Intersects[T any, U any](a attribute[T], items ...U) Expression {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
@@ -159,7 +165,7 @@ func Intersects[T any, U any](a Attribute[T], items ...U) Expression {
 	return curr
 }
 
-func HasPrefix[T any](a Attribute[T], prefix string) Expression {
+func HasPrefix[T any](a attribute[T], prefix string) Expression {
 	return newBuilder(binaryCriteria{
 		attribute: string(a),
 		operation: OperationBeginsWith,
@@ -167,7 +173,7 @@ func HasPrefix[T any](a Attribute[T], prefix string) Expression {
 	})
 }
 
-func IsOneOf[T any, U any](a Attribute[T], items ...U) Expression {
+func IsOneOf[T any, U any](a attribute[T], items ...U) Expression {
 	anyitems := make([]any, 0, len(items))
 	for _, item := range items {
 		anyitems = append(anyitems, item)
@@ -179,7 +185,7 @@ func IsOneOf[T any, U any](a Attribute[T], items ...U) Expression {
 	})
 }
 
-func IsBetween[T any, U comparable](a Attribute[T], left U, right U) Expression {
+func IsBetween[T any, U comparable](a attribute[T], left U, right U) Expression {
 	return newBuilder(betweenCriteria{
 		attribute: string(a),
 		left:      left,
