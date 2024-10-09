@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/nisimpson/ezddb"
 )
@@ -65,6 +66,51 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 // operation.
 func WithLastToken(token string, provider ezddb.StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
+}
+
+type buildExpressionFunc = func(expression.Builder) (expression.Expression, error)
+
+func BuildExpression(builder expression.Builder) (expression.Expression, error) {
+	return builder.Build()
+}
+
+type withExpressionBuilder struct {
+	build   buildExpressionFunc
+	builder expression.Builder
+}
+
+func WithExpressionBuilderFunc(builder expression.Builder, f buildExpressionFunc) withExpressionBuilder {
+	return withExpressionBuilder{build: f, builder: builder}
+}
+
+func WithExpressionBuilder(builder expression.Builder) withExpressionBuilder {
+	return WithExpressionBuilderFunc(builder, BuildExpression)
+}
+
+func (w withExpressionBuilder) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	expr, err := w.build(w.builder)
+	if err != nil {
+		return err
+	}
+	input.FilterExpression = expr.Filter()
+	input.KeyConditionExpression = expr.KeyCondition()
+	input.ProjectionExpression = expr.Projection()
+	input.ExpressionAttributeNames = expr.Names()
+	input.ExpressionAttributeValues = expr.Values()
+	return nil
+}
+
+func (w withExpressionBuilder) ModifyScanInput(ctx context.Context, input *dynamodb.QueryInput) error {
+	expr, err := w.build(w.builder)
+	if err != nil {
+		return err
+	}
+	input.FilterExpression = expr.Filter()
+	input.KeyConditionExpression = expr.KeyCondition()
+	input.ProjectionExpression = expr.Projection()
+	input.ExpressionAttributeNames = expr.Names()
+	input.ExpressionAttributeValues = expr.Values()
+	return nil
 }
 
 type invoker[T any] interface {

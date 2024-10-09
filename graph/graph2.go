@@ -80,14 +80,12 @@ func (g Graph2[T]) Update(updater updater[T], opts ...OptionsFunc) operation.Upd
 }
 
 type searcher[T any] interface {
-	search() []operation.QueryModifier
+	search(context.Context, *Options) (*dynamodb.QueryInput, error)
 }
 
 func (g Graph2[T]) Search(searcher searcher[T], opts ...OptionsFunc) operation.QueryOperation {
 	g.options.apply(opts)
-	f := operation.QueryOperation(func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		input := &dynamodb.QueryInput{TableName: &g.options.TableName}
-		return input, nil
-	})
-	return f.Modify(searcher.search()...)
+	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
+		return searcher.search(ctx, &g.options)
+	}
 }
