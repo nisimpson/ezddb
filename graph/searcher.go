@@ -11,20 +11,30 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
-type listsearch[T Node] struct{ item T }
-
-func ListOf[T Node](item T) listsearch[T] {
-	return listsearch[T]{item: item}
+type listsearch[T Node] struct {
+	itemType      string
+	createdBefore time.Time
+	createdAfter  time.Time
 }
 
-func (s listsearch[T]) Filter(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
+func ListOf[T Node](template T) listsearch[T] {
+	return listsearch[T]{itemType: template.DynamoItemType()}
+}
+
+func (s listsearch[T]) WithCreationDateBetween(start, end time.Time) listsearch[T] {
+	s.createdAfter = start
+	s.createdBefore = end
+	return s
+}
+
+func (s listsearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
 	builder := expression.NewBuilder()
-	builder = builder.WithKeyCondition(itemTypeEquals(s.item.DynamoItemType()))
+	keyCondition := itemTypeEquals(s.itemType)
+	if !(s.createdAfter.IsZero() || s.createdBefore.IsZero()) {
+		keyCondition = keyCondition.And(gsi2SkBetween(s.createdAfter, s.createdBefore))
+	}
+	builder = builder.WithKeyCondition(keyCondition)
 	return newSearcher[T](e, builder, indexTypeCollection, mods)
-}
-
-func (s listsearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
-	return s.Filter(nil, mods...)
 }
 
 func (listsearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (nodes []T, cursor string, err error) {
@@ -42,21 +52,29 @@ func (listsearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...Op
 	return
 }
 
-type nodesearch[T Node] struct{ item T }
-
-func NodeOf[T Node](item T) nodesearch[T] {
-	return nodesearch[T]{}
+type nodesearch[T Node] struct {
+	item       T
+	edgePrefix string
 }
 
-func (s nodesearch[T]) Filter(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
+func NodeOf[T Node](node T) nodesearch[T] {
+	return nodesearch[T]{item: node}
+}
+
+func EdgesOf[T Node, U Node](source T, target U) nodesearch[T] {
+	prefix := target.DynamoPrefix()
+	return nodesearch[T]{item: source, edgePrefix: prefix}
+}
+
+func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
 	item := NewEdge(s.item)
 	builder := expression.NewBuilder()
-	builder = builder.WithKeyCondition(skEquals(item.SK))
+	keyCond := skEquals(item.SK)
+	if s.edgePrefix != "" {
+		keyCond = keyCond.And(gsi1SkBeginsWith(s.edgePrefix))
+	}
+	builder = builder.WithKeyCondition(keyCond)
 	return newSearcher[T](e, builder, indexTypeReverseLookup, mods)
-}
-
-func (s nodesearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
-	return s.Filter(nil, mods...)
 }
 
 func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
@@ -78,44 +96,6 @@ func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...
 		}
 		referr = node.DynamoUnmarshalRef(ref.Relation, ref.DynamoID())
 		if referr != nil {
-			err = referr
-			return
-		}
-	}
-	provider := g.options.StartKeyTokenProvider
-	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
-	return
-}
-
-type edgesearch[T Node, U Node] struct{ item T }
-
-func EdgesOf[T Node, U Node](item T) edgesearch[T, U] {
-	return edgesearch[T, U]{item: item}
-}
-
-func (s edgesearch[T, U]) Filter(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
-	var edge U
-	nodeSK := NewEdge(s.item).SK
-	edgePrefix := edge.DynamoPrefix()
-	builder := expression.NewBuilder().WithKeyCondition(skEquals(nodeSK).And(gsi1SkBeginsWith(edgePrefix)))
-	return newSearcher[T](e, builder, indexTypeReverseLookup, mods)
-}
-
-func (s edgesearch[T, U]) Get(mods ...operation.QueryModifier) searcher[T] {
-	return s.Filter(nil, mods...)
-}
-
-func (e edgesearch[T, U]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
-	node = e.item
-	refGraph := Graph[nodeRef](g)
-	refGraph.options.apply(opts)
-	for _, item := range output.Items {
-		ref, referr := refGraph.Result(item)
-		if referr != nil {
-			err = referr
-			return
-		}
-		if referr := node.DynamoUnmarshalRef(ref.Relation, ref.DynamoID()); err != nil {
 			err = referr
 			return
 		}
@@ -176,10 +156,6 @@ func keyBeginsWith(key, prefix string) expression.KeyConditionBuilder {
 
 func itemTypeEquals(value string) expression.KeyConditionBuilder {
 	return keyEquals(AttributeItemType, value)
-}
-
-func pkEquals(value string) expression.KeyConditionBuilder {
-	return keyEquals(AttributePartitionKey, value)
 }
 
 func skEquals(value string) expression.KeyConditionBuilder {
