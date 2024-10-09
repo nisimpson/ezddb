@@ -21,7 +21,7 @@ func (u nodeupdater[T]) update(ub expression.UpdateBuilder) (ezddb.Item, express
 	return edge.Key(), ub
 }
 
-func (nodeupdater[T]) Unmarshal(g Graph[T], output *dynamodb.UpdateItemOutput, opts ...OptionsFunc) (node T, err error) {
+func (nodeupdater[T]) Result(g Graph[T], output *dynamodb.UpdateItemOutput, opts ...OptionsFunc) (node T, err error) {
 	edge := Edge[T]{}
 	err = g.options.UnmarshalItem(output.Attributes, &edge)
 	if err != nil {
