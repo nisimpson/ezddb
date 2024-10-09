@@ -16,11 +16,22 @@ type Graph2[T Data] struct {
 	options Options
 }
 
-func (g Graph2[T]) Put(data T, opts ...OptionsFunc) operation.PutOperation {
+func (g Graph2[T]) Put(data T, opts ...OptionsFunc) operation.BatchWriteOperation {
 	g.options.apply(opts)
+	op := operation.NewBatchWriteOperation()
+	node := NewItem(data)
+	refs := node.Refs()
+	mods := make([]operation.BatchWriteModifier, 0, len(refs)+1)
+	mods = append(mods, g.put(&node))
+	for _, ref := range refs {
+		mods = append(mods, g.put(&ref))
+	}
+	return op.Modify(mods...)
+}
+
+func (g Graph2[T]) put(puttable PuttableItem) operation.PutOperation {
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
-		node := NewItem(data)
-		item, err := node.Marshal(g.options.MarshalItem)
+		item, err := puttable.Marshal(g.options.MarshalItem)
 		if err != nil {
 			return nil, fmt.Errorf("put failed: %s", err)
 		}
