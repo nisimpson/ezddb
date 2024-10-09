@@ -62,7 +62,7 @@ func (s nodesearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
 func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
 	g.options.apply(opts)
 	node = s.item
-	refGraph := Graph[nodeRef]{options: g.options}
+	refGraph := Graph[nodeRef](g)
 	for _, item := range output.Items {
 		if ok := isTypeOf(node, item); ok {
 			node, err = g.Result(item)
@@ -107,7 +107,7 @@ func (s edgesearch[T, U]) Get(mods ...operation.QueryModifier) searcher[T] {
 
 func (e edgesearch[T, U]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
 	node = e.item
-	refGraph := Graph[nodeRef]{options: g.options}
+	refGraph := Graph[nodeRef](g)
 	refGraph.options.apply(opts)
 	for _, item := range output.Items {
 		ref, referr := refGraph.Result(item)
