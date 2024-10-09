@@ -68,18 +68,18 @@ func WithLastToken(token string, provider ezddb.StartKeyProvider) withLastToken 
 	return withLastToken{token: token, provider: provider}
 }
 
-type buildExpressionFunc = func(expression.Builder) (expression.Expression, error)
+type BuildExpressionFunc = func(expression.Builder) (expression.Expression, error)
 
 func BuildExpression(builder expression.Builder) (expression.Expression, error) {
 	return builder.Build()
 }
 
 type withExpressionBuilder struct {
-	build   buildExpressionFunc
+	build   BuildExpressionFunc
 	builder expression.Builder
 }
 
-func WithExpressionBuilderFunc(builder expression.Builder, f buildExpressionFunc) withExpressionBuilder {
+func WithExpressionBuilderFunc(builder expression.Builder, f BuildExpressionFunc) withExpressionBuilder {
 	return withExpressionBuilder{build: f, builder: builder}
 }
 

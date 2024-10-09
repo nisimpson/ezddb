@@ -11,9 +11,9 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
-type listsearch[T Data] struct{ item T }
+type listsearch[T NodeIdentifier] struct{ item T }
 
-func ListOf[T Data](item T) listsearch[T] {
+func ListOf[T NodeIdentifier](item T) listsearch[T] {
 	return listsearch[T]{item: item}
 }
 
@@ -27,14 +27,14 @@ func (s listsearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
 	return s.Filter(nil, mods...)
 }
 
-type nodesearch[T Data] struct{ item T }
+type nodesearch[T NodeIdentifier] struct{ item T }
 
-func NodeOf[T Data](item T) nodesearch[T] {
+func NodeOf[T NodeIdentifier](item T) nodesearch[T] {
 	return nodesearch[T]{}
 }
 
 func (s nodesearch[T]) Filter(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
-	item := NewItem(s.item)
+	item := NewEdge(s.item)
 	builder := expression.NewBuilder()
 	builder = builder.WithKeyCondition(skEquals(item.SK))
 	return newSearcher[T](e, builder, indexTypeReverseLookup, mods)
@@ -44,15 +44,15 @@ func (s nodesearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
 	return s.Filter(nil, mods...)
 }
 
-type edgesearch[T Data, U Data] struct{ item T }
+type edgesearch[T NodeIdentifier, U NodeIdentifier] struct{ item T }
 
-func EdgesOf[T Data, U Data](item T) edgesearch[T, U] {
+func EdgesOf[T NodeIdentifier, U NodeIdentifier](item T) edgesearch[T, U] {
 	return edgesearch[T, U]{item: item}
 }
 
 func (s edgesearch[T, U]) Filter(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
 	var edge U
-	nodeSK := NewItem(s.item).SK
+	nodeSK := NewEdge(s.item).SK
 	edgePrefix := edge.DynamoPrefix()
 	builder := expression.NewBuilder().WithKeyCondition(skEquals(nodeSK).And(gsi1SkBeginsWith(edgePrefix)))
 	return newSearcher[T](e, builder, indexTypeReverseLookup, mods)

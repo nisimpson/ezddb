@@ -13,13 +13,13 @@ func (f updaterFunc[T]) update(e expression.UpdateBuilder) (ezddb.Item, expressi
 	return f(e)
 }
 
-func Updater[T Data](data T, attrs ...attributeUpdater[T]) updater[T] {
+func Updater[T Node](data T, attrs ...attributeUpdater[T]) updater[T] {
 	return updaterFunc[T](func(ub expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder) {
-		pk, sk := data.DynamoHashKey(), data.DynamoSortKey()
+		edge := NewEdge(data)
 		for _, attr := range attrs {
 			ub = attr.update(ub)
 		}
-		return newItemKey(pk, sk), ub
+		return edge.Key(), ub
 	})
 }
 
@@ -35,7 +35,7 @@ func (f attributeUpdaterFunc[T]) update(b expression.UpdateBuilder) expression.U
 
 type attributeUpdate[T any, U any] struct{ key string }
 
-func UpdateFor[T Data, U any](key string) attributeUpdate[T, U] {
+func UpdateFor[T NodeIdentifier, U any](key string) attributeUpdate[T, U] {
 	return attributeUpdate[T, U]{key: key}
 }
 
