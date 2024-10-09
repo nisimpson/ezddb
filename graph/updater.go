@@ -5,7 +5,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/operation"
 )
 
 type updaterFunc[T any] func(expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder)
