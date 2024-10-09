@@ -144,11 +144,11 @@ func (g Graph[T]) Result(item ezddb.Item, opts ...OptionsFunc) (node T, err erro
 	return edge.Data, err
 }
 
-type searcher[T any] interface {
+type criteria[T any] interface {
 	search(context.Context, *Options) (*dynamodb.QueryInput, error)
 }
 
-func (g Graph[T]) Search(searcher searcher[T], opts ...OptionsFunc) operation.QueryOperation {
+func (g Graph[T]) Search(searcher criteria[T], opts ...OptionsFunc) operation.QueryOperation {
 	g.options.apply(opts)
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		return searcher.search(ctx, &g.options)

@@ -1,12 +1,10 @@
 package graph
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
 )
@@ -117,8 +115,8 @@ func (nodeRef) DynamoMarshal(createdAt, updatedAt time.Time) error   { return ni
 func newNodeRef(src, tgt Node, relation string) Edge[*nodeRef] {
 	return NewEdge(&nodeRef{
 		HashID:     tgt.DynamoID(),
-		SortID:     src.DynamoID(),
 		HashPrefix: tgt.DynamoPrefix(),
+		SortID:     src.DynamoID(),
 		SortPrefix: src.DynamoPrefix(),
 		Relation:   relation,
 	}, func(io *EdgeOptions) {
@@ -165,51 +163,6 @@ func (e *Edge[T]) unmarshal(item ezddb.Item, u ezddb.ItemUnmarshaler) error {
 		return err
 	}
 	return e.Data.DynamoUnmarshal(e.CreatedAt, e.UpdatedAt)
-}
-
-func UnmarshalCollection[T Node](ctx context.Context, items []ezddb.Item, opts ...OptionsFunc) ([]T, error) {
-	options := Options{UnmarshalItem: attributevalue.UnmarshalMap}
-	options.apply(opts)
-
-	nodes := make([]T, 0, len(items))
-	for _, item := range items {
-		node := Edge[T]{}
-		err := options.UnmarshalItem(item, &node)
-		if err != nil {
-			return nil, fmt.Errorf("failed to unmarshal node: %w", err)
-		}
-		err = node.Data.DynamoUnmarshal(node.CreatedAt, node.UpdatedAt)
-		nodes = append(nodes, node.Data)
-	}
-
-	return nodes, nil
-}
-
-func UnmarshalPartition[T Node](ctx context.Context, data T, items []ezddb.Item, opts ...OptionsFunc) (T, error) {
-	options := Options{UnmarshalItem: attributevalue.UnmarshalMap}
-	options.apply(opts)
-
-	node := NewEdge(data)
-	errs := make([]error, 0, len(items))
-	for _, item := range items {
-		itemType := item[AttributeItemType].(*types.AttributeValueMemberS).Value
-		if itemType == node.ItemType {
-			err := options.UnmarshalItem(item, node)
-			errs = append(errs, err)
-			continue
-		}
-		ref := Edge[nodeRef]{}
-		err := options.UnmarshalItem(item, &ref)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		relation := ref.Data.Relation
-		refID := ref.Data.HashID
-		err = node.Data.DynamoUnmarshalRef(relation, refID)
-		errs = append(errs, err)
-	}
-	return node.Data, errors.Join(errs...)
 }
 
 func isTypeOf[T Node](node T, item ezddb.Item) bool {

@@ -27,7 +27,7 @@ func (s listsearch[T]) WithCreationDateBetween(start, end time.Time) listsearch[
 	return s
 }
 
-func (s listsearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
+func (s listsearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) criteria[T] {
 	builder := expression.NewBuilder()
 	keyCondition := itemTypeEquals(s.itemType)
 	if !(s.createdAfter.IsZero() || s.createdBefore.IsZero()) {
@@ -66,7 +66,7 @@ func EdgesOf[T Node, U Node](source T, target U) nodesearch[T] {
 	return nodesearch[T]{item: source, edgePrefix: prefix}
 }
 
-func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) searcher[T] {
+func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) criteria[T] {
 	item := NewEdge(s.item)
 	builder := expression.NewBuilder()
 	keyCond := skEquals(item.SK)
@@ -112,7 +112,7 @@ const (
 	indexTypeReverseLookup
 )
 
-func newSearcher[T any](e filter.Expression, b expression.Builder, indexType searchIndexType, mods []operation.QueryModifier) searcher[T] {
+func newSearcher[T any](e filter.Expression, b expression.Builder, indexType searchIndexType, mods []operation.QueryModifier) criteria[T] {
 	return searcherFunc[T](
 		func(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
 			var errs []error = make([]error, 0)
