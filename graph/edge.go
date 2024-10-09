@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/filter"
 )
 
 var (
@@ -126,7 +127,14 @@ func newNodeRef(src, tgt Node, relation string) Edge[*nodeRef] {
 	})
 }
 
-func (e Edge[T]) Refs() []Edge[*nodeRef] {
+func (e Edge[T]) Key() ezddb.Item {
+	return ezddb.Item{
+		AttributePartitionKey: &types.AttributeValueMemberS{Value: e.PK},
+		AttributeSortKey:      &types.AttributeValueMemberS{Value: e.SK},
+	}
+}
+
+func (e Edge[T]) refs() []Edge[*nodeRef] {
 	relationships := e.Data.DynamoRelationships()
 	if len(relationships) == 0 {
 		return nil
@@ -139,17 +147,6 @@ func (e Edge[T]) Refs() []Edge[*nodeRef] {
 		}
 	}
 	return refs
-}
-
-func (e Edge[T]) IsNode() bool {
-	return e.PK == e.SK
-}
-
-func (e Edge[T]) Key() ezddb.Item {
-	return ezddb.Item{
-		AttributePartitionKey: &types.AttributeValueMemberS{Value: e.PK},
-		AttributeSortKey:      &types.AttributeValueMemberS{Value: e.SK},
-	}
 }
 
 func (e Edge[T]) marshal(m ezddb.ItemMarshaler) (ezddb.Item, error) {
@@ -165,10 +162,13 @@ func (e *Edge[T]) unmarshal(item ezddb.Item, u ezddb.ItemUnmarshaler) error {
 	return e.Data.DynamoUnmarshal(e.CreatedAt, e.UpdatedAt)
 }
 
-func isTypeOf[T Node](node T, item ezddb.Item) bool {
-	if attr, ok := item[AttributeItemType].(*types.AttributeValueMemberS); !ok {
-		return false
-	} else {
-		return attr.Value == node.DynamoItemType()
-	}
+type filters[T any] struct{}
+
+func Filters[T Node](item T) filters[T] {
+	return filters[T]{}
+}
+
+func (f filters[T]) RelationEquals(relation string) filter.Expression {
+	attr := filter.AttributeOf[T](AttributeItemType)
+	return filter.Equals[T](attr, fmt.Sprintf("ref:%s", relation))
 }

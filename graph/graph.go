@@ -59,7 +59,7 @@ func (g Graph[T]) Put(data T, opts ...OptionsFunc) operation.BatchWriteOperation
 	g.options.apply(opts)
 	op := operation.NewBatchWriteOperation()
 	node := NewEdge(data)
-	refs := node.Refs()
+	refs := node.refs()
 	mods := make([]operation.BatchWriteModifier, 0, len(refs)+1)
 	mods = append(mods, g.put(node))
 	for _, ref := range refs {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
 )
@@ -144,6 +146,14 @@ type searcherFunc[T any] func(context.Context, *Options) (*dynamodb.QueryInput, 
 
 func (f searcherFunc[T]) search(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
 	return f(ctx, o)
+}
+
+func isTypeOf[T Node](node T, item ezddb.Item) bool {
+	if attr, ok := item[AttributeItemType].(*types.AttributeValueMemberS); !ok {
+		return false
+	} else {
+		return attr.Value == node.DynamoItemType()
+	}
 }
 
 func keyEquals(key, value string) expression.KeyConditionBuilder {
