@@ -4,23 +4,36 @@ import (
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/nisimpson/ezddb"
 )
 
-type updaterFunc[T any] func(expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder)
-
-func (f updaterFunc[T]) update(e expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder) {
-	return f(e)
+type nodeupdater[T Node] struct {
+	item  T
+	attrs []attributeUpdater[T]
 }
 
-func Updater[T Node](data T, attrs ...attributeUpdater[T]) updater[T] {
-	return updaterFunc[T](func(ub expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder) {
-		edge := NewEdge(data)
-		for _, attr := range attrs {
-			ub = attr.update(ub)
-		}
-		return edge.Key(), ub
-	})
+func (u nodeupdater[T]) update(ub expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder) {
+	edge := NewEdge(u.item)
+	for _, attr := range u.attrs {
+		ub = attr.update(ub)
+	}
+	return edge.Key(), ub
+}
+
+func (nodeupdater[T]) Unmarshal(g Graph[T], output *dynamodb.UpdateItemOutput, opts ...OptionsFunc) (node T, err error) {
+	edge := Edge[T]{}
+	err = g.options.UnmarshalItem(output.Attributes, &edge)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal type: '%s': %w", edge.ItemType, err)
+		return node, err
+	}
+	err = edge.Data.DynamoUnmarshal(edge.CreatedAt, edge.UpdatedAt)
+	return edge.Data, err
+}
+
+func Updater[T Node](data T, attrs ...attributeUpdater[T]) nodeupdater[T] {
+	return nodeupdater[T]{item: data, attrs: attrs}
 }
 
 type attributeUpdater[T any] interface {
@@ -35,7 +48,7 @@ func (f attributeUpdaterFunc[T]) update(b expression.UpdateBuilder) expression.U
 
 type attributeUpdate[T any, U any] struct{ key string }
 
-func UpdateFor[T NodeIdentifier, U any](key string) attributeUpdate[T, U] {
+func UpdateFor[T Node, U any](key string) attributeUpdate[T, U] {
 	return attributeUpdate[T, U]{key: key}
 }
 

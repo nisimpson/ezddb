@@ -24,20 +24,17 @@ const (
 	AttributeUpdatedAt              = "updated_at"
 )
 
-type NodeIdentifier interface {
+type Node interface {
 	DynamoID() string
 	DynamoPrefix() string
 	DynamoItemType() string
-	DynamoRelationships() map[string][]NodeIdentifier
-}
-
-type Node interface {
-	NodeIdentifier
+	DynamoRelationships() map[string][]Node
+	DynamoMarshal(createdAt, updatedAt time.Time) error
 	DynamoUnmarshal(createdAt, updatedAt time.Time) error
 	DynamoUnmarshalRef(relation string, refID string) error
 }
 
-type Edge[T NodeIdentifier] struct {
+type Edge[T Node] struct {
 	PK        string    `dynamodbav:"pk"`
 	SK        string    `dynamodbav:"sk"`
 	ItemType  string    `dynamodbav:"item_type"`
@@ -63,7 +60,7 @@ type EdgeOptions struct {
 	ExpirationDate             time.Time
 }
 
-func NewEdge[T NodeIdentifier](data T, opts ...func(*EdgeOptions)) Edge[T] {
+func NewEdge[T Node](data T, opts ...func(*EdgeOptions)) Edge[T] {
 	options := EdgeOptions{
 		Tick:                       time.Now,
 		HashID:                     data.DynamoID(),
@@ -109,14 +106,15 @@ type nodeRef struct {
 	Relation   string
 }
 
-func (n nodeRef) DynamoID() string                                    { return n.HashID }
-func (n nodeRef) DynamoPrefix() string                                { return n.HashPrefix }
-func (n nodeRef) DynamoItemType() string                              { return n.Relation }
-func (nodeRef) DynamoRelationships() map[string][]NodeIdentifier      { return nil }
-func (*nodeRef) DynamoUnmarshal(createdAt, updatedAt time.Time) error { return nil }
-func (*nodeRef) DynamoUnmarshalRef(string, string) error              { return nil }
+func (n nodeRef) DynamoID() string                                   { return n.HashID }
+func (n nodeRef) DynamoPrefix() string                               { return n.HashPrefix }
+func (n nodeRef) DynamoItemType() string                             { return n.Relation }
+func (nodeRef) DynamoRelationships() map[string][]Node               { return nil }
+func (nodeRef) DynamoUnmarshal(createdAt, updatedAt time.Time) error { return nil }
+func (nodeRef) DynamoUnmarshalRef(string, string) error              { return nil }
+func (nodeRef) DynamoMarshal(createdAt, updatedAt time.Time) error   { return nil }
 
-func newNodeRef(src, tgt NodeIdentifier, relation string) Edge[*nodeRef] {
+func newNodeRef(src, tgt Node, relation string) Edge[*nodeRef] {
 	return NewEdge(&nodeRef{
 		HashID:     tgt.DynamoID(),
 		SortID:     src.DynamoID(),
@@ -157,7 +155,16 @@ func (e Edge[T]) Key() ezddb.Item {
 }
 
 func (e Edge[T]) marshal(m ezddb.ItemMarshaler) (ezddb.Item, error) {
-	return m(e)
+	err1 := e.Data.DynamoMarshal(e.CreatedAt, e.UpdatedAt)
+	item, err2 := m(e)
+	return item, errors.Join(err1, err2)
+}
+
+func (e *Edge[T]) unmarshal(item ezddb.Item, u ezddb.ItemUnmarshaler) error {
+	if err := u(item, e); err != nil {
+		return err
+	}
+	return e.Data.DynamoUnmarshal(e.CreatedAt, e.UpdatedAt)
 }
 
 func UnmarshalCollection[T Node](ctx context.Context, items []ezddb.Item, opts ...OptionsFunc) ([]T, error) {
@@ -203,4 +210,12 @@ func UnmarshalPartition[T Node](ctx context.Context, data T, items []ezddb.Item,
 		errs = append(errs, err)
 	}
 	return node.Data, errors.Join(errs...)
+}
+
+func isTypeOf[T Node](node T, item ezddb.Item) bool {
+	if attr, ok := item[AttributeItemType].(*types.AttributeValueMemberS); !ok {
+		return false
+	} else {
+		return attr.Value == node.DynamoItemType()
+	}
 }

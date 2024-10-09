@@ -11,9 +11,9 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
-type listsearch[T NodeIdentifier] struct{ item T }
+type listsearch[T Node] struct{ item T }
 
-func ListOf[T NodeIdentifier](item T) listsearch[T] {
+func ListOf[T Node](item T) listsearch[T] {
 	return listsearch[T]{item: item}
 }
 
@@ -27,9 +27,24 @@ func (s listsearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
 	return s.Filter(nil, mods...)
 }
 
-type nodesearch[T NodeIdentifier] struct{ item T }
+func (listsearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (nodes []T, cursor string, err error) {
+	nodes = make([]T, 0, len(output.Items))
+	for _, item := range output.Items {
+		node, nodeerr := g.Result(item, opts...)
+		if nodeerr != nil {
+			err = nodeerr
+			return
+		}
+		nodes = append(nodes, node)
+	}
+	provider := g.options.StartKeyTokenProvider
+	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
+	return
+}
 
-func NodeOf[T NodeIdentifier](item T) nodesearch[T] {
+type nodesearch[T Node] struct{ item T }
+
+func NodeOf[T Node](item T) nodesearch[T] {
 	return nodesearch[T]{}
 }
 
@@ -44,9 +59,37 @@ func (s nodesearch[T]) Get(mods ...operation.QueryModifier) searcher[T] {
 	return s.Filter(nil, mods...)
 }
 
-type edgesearch[T NodeIdentifier, U NodeIdentifier] struct{ item T }
+func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
+	g.options.apply(opts)
+	node = s.item
+	refGraph := Graph[nodeRef]{options: g.options}
+	for _, item := range output.Items {
+		if ok := isTypeOf(node, item); ok {
+			node, err = g.Result(item)
+			if err != nil {
+				return
+			}
+			continue
+		}
+		ref, referr := refGraph.Result(item)
+		if referr != nil {
+			err = referr
+			return
+		}
+		referr = node.DynamoUnmarshalRef(ref.Relation, ref.DynamoID())
+		if referr != nil {
+			err = referr
+			return
+		}
+	}
+	provider := g.options.StartKeyTokenProvider
+	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
+	return
+}
 
-func EdgesOf[T NodeIdentifier, U NodeIdentifier](item T) edgesearch[T, U] {
+type edgesearch[T Node, U Node] struct{ item T }
+
+func EdgesOf[T Node, U Node](item T) edgesearch[T, U] {
 	return edgesearch[T, U]{item: item}
 }
 
@@ -60,6 +103,26 @@ func (s edgesearch[T, U]) Filter(e filter.Expression, mods ...operation.QueryMod
 
 func (s edgesearch[T, U]) Get(mods ...operation.QueryModifier) searcher[T] {
 	return s.Filter(nil, mods...)
+}
+
+func (e edgesearch[T, U]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
+	node = e.item
+	refGraph := Graph[nodeRef]{options: g.options}
+	refGraph.options.apply(opts)
+	for _, item := range output.Items {
+		ref, referr := refGraph.Result(item)
+		if referr != nil {
+			err = referr
+			return
+		}
+		if referr := node.DynamoUnmarshalRef(ref.Relation, ref.DynamoID()); err != nil {
+			err = referr
+			return
+		}
+	}
+	provider := g.options.StartKeyTokenProvider
+	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
+	return
 }
 
 type searchIndexType int

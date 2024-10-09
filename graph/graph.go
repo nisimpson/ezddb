@@ -13,6 +13,11 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
+const (
+	DefaultCollectionQueryIndexName = "collection-query-index"
+	DefaultReverseLookupIndexName   = "reverse-lookup-index"
+)
+
 type Graph[T Node] struct {
 	options Options
 }
@@ -125,6 +130,18 @@ func (g Graph[T]) Update(updater updater[T], opts ...OptionsFunc) operation.Upda
 			ReturnValues:              types.ReturnValueAllNew,
 		}, nil
 	}
+}
+
+func (g Graph[T]) Result(item ezddb.Item, opts ...OptionsFunc) (node T, err error) {
+	g.options.apply(opts)
+	edge := Edge[T]{}
+	err = edge.unmarshal(item, g.options.UnmarshalItem)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal edge (%v): %w", item, err)
+		return node, err
+	}
+	err = edge.Data.DynamoUnmarshal(edge.CreatedAt, edge.UpdatedAt)
+	return edge.Data, err
 }
 
 type searcher[T any] interface {
