@@ -31,7 +31,7 @@ type Node interface {
 	DynamoItemType() string
 	DynamoRefs() map[string]Node
 	DynamoMarshal(createdAt, updatedAt time.Time) error
-	DynamoMarshalRef(relation string) []Node
+	DynamoMarshalRef(relation string) ([]Node, bool)
 	DynamoUnmarshal(createdAt, updatedAt time.Time) error
 	DynamoUnmarshalRef(relation string, refID string) error
 }
@@ -106,21 +106,34 @@ func NewEdge[T Node](data T, opts ...func(*EdgeOptions)) Edge[T] {
 // distinguish between different types of relationships. For example, a "follows"
 // relation might represent a user following another user or a post being commented on by another user.
 type nodeRef struct {
-	TargetID     string
-	TargetPrefix string
 	SourceID     string
 	SourcePrefix string
+	TargetID     string
+	TargetPrefix string
 	Relation     string
+	Reverse      bool
 }
 
-func (n nodeRef) DynamoID() string                                   { return n.TargetID }
-func (n nodeRef) DynamoPrefix() string                               { return n.TargetPrefix }
+func (n nodeRef) DynamoID() string {
+	if n.Reverse {
+		return n.SourceID
+	}
+	return n.TargetID
+}
+
+func (n nodeRef) DynamoPrefix() string {
+	if n.Reverse {
+		return n.SourcePrefix
+	}
+	return n.TargetPrefix
+}
+
 func (n nodeRef) DynamoItemType() string                             { return n.Relation }
 func (nodeRef) DynamoRefs() map[string]Node                          { return nil }
 func (nodeRef) DynamoUnmarshal(createdAt, updatedAt time.Time) error { return nil }
 func (nodeRef) DynamoUnmarshalRef(string, string) error              { return nil }
 func (nodeRef) DynamoMarshal(createdAt, updatedAt time.Time) error   { return nil }
-func (nodeRef) DynamoMarshalRef(relation string) []Node              { return nil }
+func (nodeRef) DynamoMarshalRef(relation string) ([]Node, bool)      { return nil, false }
 
 // refItemType returns the item type for a reference edge.
 // The item type is a combination of the relation and the source node's item type.
@@ -133,13 +146,14 @@ func refItemType(src Node, relation string) string {
 
 // newNodeRef creates a new reference edge that represents the relationship
 // between the source node and target node.
-func newNodeRef(src, tgt Node, relation string) Edge[*nodeRef] {
+func newNodeRef(src, tgt Node, relation string, reverse bool) Edge[*nodeRef] {
 	return NewEdge(&nodeRef{
 		TargetID:     tgt.DynamoID(),
 		TargetPrefix: tgt.DynamoPrefix(),
 		SourceID:     src.DynamoID(),
 		SourcePrefix: src.DynamoPrefix(),
 		Relation:     relation,
+		Reverse:      reverse,
 	}, func(io *EdgeOptions) {
 		io.ItemType = refItemType(src, relation)
 		io.SupportsCollectionIndex = false
@@ -162,9 +176,14 @@ func (e Edge[T]) refs() []Edge[*nodeRef] {
 
 	refs := make([]Edge[*nodeRef], 0, len(relationships))
 	for name := range relationships {
-		nodes := e.Data.DynamoMarshalRef(name)
+		nodes, reverse := e.Data.DynamoMarshalRef(name)
 		for _, node := range nodes {
-			refs = append(refs, newNodeRef(e.Data, node, name))
+			src, tgt := e.Data, node
+			if reverse {
+				refs = append(refs, newNodeRef(tgt, src, name, true))
+				continue
+			}
+			refs = append(refs, newNodeRef(src, tgt, name, false))
 		}
 	}
 	return refs

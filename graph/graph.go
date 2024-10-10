@@ -55,17 +55,21 @@ func Of[T Node](tableName string, opts ...OptionsFunc) Graph[T] {
 	return Graph[T]{options: options}
 }
 
-func (g Graph[T]) Put(data T, opts ...OptionsFunc) operation.BatchWriteOperation {
+func (g Graph[T]) PutEdges(data T, opts ...OptionsFunc) operation.BatchWriteCollection {
 	g.options.apply(opts)
-	op := operation.NewBatchWriteOperation()
 	node := NewEdge(data)
 	refs := node.refs()
-	mods := make([]operation.BatchWriteModifier, 0, len(refs)+1)
-	mods = append(mods, g.put(node))
+	mods := make(operation.BatchWriteCollection, 0, len(refs)+1)
 	for _, ref := range refs {
-		mods = append(mods, g.put(&ref))
+		mods = append(mods, g.put(ref))
 	}
-	return op.Modify(mods...)
+	return mods
+}
+
+func (g Graph[T]) Put(data T, opts ...OptionsFunc) operation.PutOperation {
+	g.options.apply(opts)
+	node := NewEdge(data)
+	return g.put(node)
 }
 
 type puttable interface {
@@ -132,7 +136,10 @@ func (g Graph[T]) Update(updater updater[T], opts ...OptionsFunc) operation.Upda
 	}
 }
 
-func (g Graph[T]) Result(item ezddb.Item, opts ...OptionsFunc) (node T, err error) {
+func (g Graph[T]) UnmarshalNode(item ezddb.Item, opts ...OptionsFunc) (node T, err error) {
+	if item == nil {
+		return node, ErrNotFound
+	}
 	g.options.apply(opts)
 	edge := Edge[T]{}
 	err = edge.unmarshal(item, g.options.UnmarshalItem)
@@ -142,6 +149,66 @@ func (g Graph[T]) Result(item ezddb.Item, opts ...OptionsFunc) (node T, err erro
 	}
 	err = edge.Data.DynamoUnmarshal(edge.CreatedAt, edge.UpdatedAt)
 	return edge.Data, err
+}
+
+type refmap[T Node] map[string][]Node
+
+func (m refmap[T]) Apply(node T) {
+	for relation, refs := range m {
+		for _, ref := range refs {
+			node.DynamoUnmarshalRef(relation, ref.DynamoID())
+		}
+	}
+}
+
+func (g Graph[T]) UnmarshalEdges(node T, items []ezddb.Item, opts ...OptionsFunc) (out T, refs refmap[T], err error) {
+	g.options.apply(opts)
+	refGraph := Graph[nodeRef](g)
+	refs = make(refmap[T])
+	out = node
+	for _, item := range items {
+		if ok := itemIsTypeOf(node, item); ok {
+			out, err = g.UnmarshalNode(item)
+			if err != nil {
+				return
+			}
+			continue
+		}
+		ref, referr := refGraph.UnmarshalNode(item)
+		if referr != nil {
+			err = referr
+			return
+		}
+		refs[ref.Relation] = append(refs[ref.Relation], ref)
+	}
+	return
+}
+
+func (g Graph[T]) UnmarshalList(items []ezddb.Item, opts ...OptionsFunc) (out []T, err error) {
+	g.options.apply(opts)
+	out = make([]T, len(items))
+	for i, item := range items {
+		node, nerr := g.UnmarshalNode(item)
+		if nerr != nil {
+			err = nerr
+			return
+		}
+		out[i] = node
+	}
+	return
+}
+
+func (g Graph[T]) UnmarshalPageCursor(lastEvaluatedKey ezddb.Item, opts ...OptionsFunc) (token string, err error) {
+	g.options.apply(opts)
+	if lastEvaluatedKey == nil {
+		return "", nil
+	}
+	token, err = g.options.StartKeyTokenProvider.GetStartKeyToken(context.TODO(), lastEvaluatedKey)
+	if err != nil {
+		err = fmt.Errorf("failed to get token: %w", err)
+		return
+	}
+	return
 }
 
 type QueryBuilder[T any] interface {

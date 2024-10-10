@@ -41,9 +41,17 @@ func (f nodefilter[T]) IsRef(relation string) filter.Builder {
 	return filter.HasPrefix(FilterItemType, relation)
 }
 
+func (f nodefilter[T]) IsNode() filter.Builder {
+	edge := NewEdge(f.node)
+	return filter.And(
+		filter.Equals(FilterPK, edge.PK),
+		filter.Equals(FilterSK, edge.SK),
+	)
+}
+
 func (f nodefilter[T]) IncludeRefs(relation string, relations ...string) filter.Builder {
-	expr := f.IsType()
-	expr = expr.And(f.IsRef(relation))
+	expr := f.IsNode()
+	expr = expr.Or(f.IsRef(relation))
 	for _, rel := range relations {
 		expr = expr.Or(f.IsRef(rel))
 	}

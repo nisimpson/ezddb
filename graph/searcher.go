@@ -24,7 +24,7 @@ func ListOf[T Node](template T) listsearch[T] {
 	return listsearch[T]{itemType: template.DynamoItemType()}
 }
 
-func (s listsearch[T]) CreatedBetween(start, end time.Time) listsearch[T] {
+func (s listsearch[T]) WithCreationDateBetween(start, end time.Time) listsearch[T] {
 	s.createdAfter = start
 	s.createdBefore = end
 	return s
@@ -48,35 +48,25 @@ func (s listsearch[T]) Build(mods ...operation.QueryModifier) QueryBuilder[T] {
 	return newQueryBuilder[T](s.filter, builder, indexTypeCollection, mods)
 }
 
-func (listsearch[T]) Scan(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (nodes []T, cursor string, err error) {
-	nodes = make([]T, 0, len(output.Items))
-	for _, item := range output.Items {
-		node, nodeerr := g.Result(item, opts...)
-		if nodeerr != nil {
-			err = nodeerr
-			return
-		}
-		nodes = append(nodes, node)
-	}
-	provider := g.options.StartKeyTokenProvider
-	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
-	return
-}
-
 type nodesearch[T Node] struct {
 	item       T
 	edgePrefix string
 	filter     filter.Expression
+	reverse    bool
 }
 
-func NodeOf[T Node](node T) nodesearch[T] {
+func EdgesOf[T Node](node T) nodesearch[T] {
 	return nodesearch[T]{item: node}
 }
 
-func RefsOf[T Node](source T, relation string) nodesearch[T] {
-	defs := source.DynamoRefs()
-	prefix := defs[relation].DynamoPrefix()
-	return nodesearch[T]{item: source, edgePrefix: prefix}
+func (s nodesearch[T]) WithEdgeTarget(target Node) nodesearch[T] {
+	s.edgePrefix = target.DynamoPrefix()
+	return s
+}
+
+func (s nodesearch[T]) WithReverseLookup() nodesearch[T] {
+	s.reverse = true
+	return s
 }
 
 func (s nodesearch[T]) WithFilter(e filter.Expression, and ...filter.Expression) nodesearch[T] {
@@ -87,49 +77,42 @@ func (s nodesearch[T]) WithFilter(e filter.Expression, and ...filter.Expression)
 	return s
 }
 
-func (s nodesearch[T]) Build(mods ...operation.QueryModifier) QueryBuilder[T] {
+func (s nodesearch[T]) pkCondition() expression.KeyConditionBuilder {
 	item := NewEdge(s.item)
-	builder := expression.NewBuilder()
-	keyCond := skEquals(item.SK)
-	if s.edgePrefix != "" {
-		keyCond = keyCond.And(gsi1SkBeginsWith(s.edgePrefix))
+	keyCondition := pkEquals(item.PK)
+	if s.reverse {
+		keyCondition = skEquals(item.SK)
 	}
-	builder = builder.WithKeyCondition(keyCond)
-	return newQueryBuilder[T](s.filter, builder, indexTypeReverseLookup, mods)
+	return keyCondition
 }
 
-func (s nodesearch[T]) Scan(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
-	g.options.apply(opts)
-	node = s.item
-	refGraph := Graph[nodeRef](g)
-	for _, item := range output.Items {
-		if ok := isTypeOf(node, item); ok {
-			node, err = g.Result(item)
-			if err != nil {
-				return
-			}
-			continue
-		}
-		ref, referr := refGraph.Result(item)
-		if referr != nil {
-			err = referr
-			return
-		}
-		referr = node.DynamoUnmarshalRef(ref.Relation, ref.DynamoID())
-		if referr != nil {
-			err = referr
-			return
-		}
+func (s nodesearch[T]) skCondition() expression.KeyConditionBuilder {
+	keyCondition := skBeginsWith(s.edgePrefix)
+	if s.reverse {
+		keyCondition = gsi1SkBeginsWith(s.edgePrefix)
 	}
-	provider := g.options.StartKeyTokenProvider
-	cursor, err = provider.GetStartKeyToken(context.TODO(), output.LastEvaluatedKey)
-	return
+	return keyCondition
+}
+
+func (s nodesearch[T]) Build(mods ...operation.QueryModifier) QueryBuilder[T] {
+	builder := expression.NewBuilder()
+	key := s.pkCondition()
+	if s.edgePrefix != "" {
+		key = key.And(s.skCondition())
+	}
+	builder = builder.WithKeyCondition(key)
+	var index searchIndexType
+	if s.reverse {
+		index = indexTypeReverseLookup
+	}
+	return newQueryBuilder[T](s.filter, builder, index, mods)
 }
 
 type searchIndexType int
 
 const (
-	indexTypeCollection searchIndexType = iota
+	indexTypeNone searchIndexType = iota
+	indexTypeCollection
 	indexTypeReverseLookup
 )
 
@@ -163,7 +146,7 @@ func (f queryBuilderFunc[T]) queryInput(ctx context.Context, o *Options) (*dynam
 	return f(ctx, o)
 }
 
-func isTypeOf[T Node](node T, item ezddb.Item) bool {
+func itemIsTypeOf[T Node](node T, item ezddb.Item) bool {
 	if attr, ok := item[AttributeItemType].(*types.AttributeValueMemberS); !ok {
 		return false
 	} else {
@@ -183,8 +166,16 @@ func itemTypeEquals(value string) expression.KeyConditionBuilder {
 	return keyEquals(AttributeItemType, value)
 }
 
+func pkEquals(value string) expression.KeyConditionBuilder {
+	return keyEquals(AttributePartitionKey, value)
+}
+
 func skEquals(value string) expression.KeyConditionBuilder {
 	return keyEquals(AttributeSortKey, value)
+}
+
+func skBeginsWith(prefix string) expression.KeyConditionBuilder {
+	return keyBeginsWith(AttributeSortKey, prefix)
 }
 
 func gsi1SkBeginsWith(prefix string) expression.KeyConditionBuilder {
