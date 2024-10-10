@@ -77,7 +77,10 @@ func (c BatchWriteCollection) ExecuteConcurrently(ctx context.Context,
 }
 
 func (BatchWriteCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutput) *dynamodb.BatchWriteItemOutput {
-	output := &dynamodb.BatchWriteItemOutput{}
+	output := &dynamodb.BatchWriteItemOutput{
+		ItemCollectionMetrics: make(map[string][]types.ItemCollectionMetrics),
+		UnprocessedItems:      make(map[string][]types.WriteRequest),
+	}
 	for _, item := range items {
 		output.ConsumedCapacity = append(output.ConsumedCapacity, item.ConsumedCapacity...)
 		for k, v := range item.ItemCollectionMetrics {
