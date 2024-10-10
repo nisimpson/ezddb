@@ -24,7 +24,7 @@ func ListOf[T Node](template T) listsearch[T] {
 	return listsearch[T]{itemType: template.DynamoItemType()}
 }
 
-func (s listsearch[T]) WithDateFilter(start, end time.Time) listsearch[T] {
+func (s listsearch[T]) CreatedBetween(start, end time.Time) listsearch[T] {
 	s.createdAfter = start
 	s.createdBefore = end
 	return s
@@ -38,7 +38,7 @@ func (s listsearch[T]) WithFilter(e filter.Expression, and ...filter.Expression)
 	return s
 }
 
-func (s listsearch[T]) Criteria(mods ...operation.QueryModifier) QueryBuilder[T] {
+func (s listsearch[T]) Build(mods ...operation.QueryModifier) QueryBuilder[T] {
 	builder := expression.NewBuilder()
 	keyCondition := itemTypeEquals(s.itemType)
 	if !(s.createdAfter.IsZero() || s.createdBefore.IsZero()) {
@@ -73,8 +73,9 @@ func NodeOf[T Node](node T) nodesearch[T] {
 	return nodesearch[T]{item: node}
 }
 
-func EdgesOf[T Node, U Node](source T, target U) nodesearch[T] {
-	prefix := target.DynamoPrefix()
+func RefsOf[T Node](source T, relation string) nodesearch[T] {
+	defs := source.DynamoRefs()
+	prefix := defs[relation].DynamoPrefix()
 	return nodesearch[T]{item: source, edgePrefix: prefix}
 }
 
@@ -86,7 +87,7 @@ func (s nodesearch[T]) WithFilter(e filter.Expression, and ...filter.Expression)
 	return s
 }
 
-func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) QueryBuilder[T] {
+func (s nodesearch[T]) Build(mods ...operation.QueryModifier) QueryBuilder[T] {
 	item := NewEdge(s.item)
 	builder := expression.NewBuilder()
 	keyCond := skEquals(item.SK)
@@ -97,7 +98,7 @@ func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModi
 	return newQueryBuilder[T](s.filter, builder, indexTypeReverseLookup, mods)
 }
 
-func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
+func (s nodesearch[T]) Scan(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
 	g.options.apply(opts)
 	node = s.item
 	refGraph := Graph[nodeRef](g)
@@ -136,13 +137,9 @@ func newQueryBuilder[T any](e filter.Expression, b expression.Builder, indexType
 	return queryBuilderFunc[T](
 		func(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
 			var errs []error = make([]error, 0)
-			var condition expression.ConditionBuilder
 			var input dynamodb.QueryInput
 			if e != nil {
-				var err error
-				condition, err = filter.Evaluate(e)
-				b = b.WithCondition(condition)
-				errs = append(errs, err)
+				b = b.WithCondition(filter.Condition(e))
 			}
 			mods = append(mods, operation.WithExpressionBuilderFunc(b, o.BuildExpression))
 			for _, mod := range mods {

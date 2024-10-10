@@ -7,7 +7,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/filter"
 )
 
 var (
@@ -21,14 +20,18 @@ const (
 	AttributeCollectionQuerySortKey = "gsi2_sk"
 	AttributeReverseLookupSortKey   = "gsi1_sk"
 	AttributeUpdatedAt              = "updated_at"
+	AttributeCreatedAt              = "created_at"
+	AttributeExpires                = "expires"
+	AttributeData                   = "data"
 )
 
 type Node interface {
 	DynamoID() string
 	DynamoPrefix() string
 	DynamoItemType() string
-	DynamoRelationships() map[string][]Node
+	DynamoRefs() map[string]Node
 	DynamoMarshal(createdAt, updatedAt time.Time) error
+	DynamoMarshalRef(relation string) []Node
 	DynamoUnmarshal(createdAt, updatedAt time.Time) error
 	DynamoUnmarshalRef(relation string, refID string) error
 }
@@ -97,31 +100,48 @@ func NewEdge[T Node](data T, opts ...func(*EdgeOptions)) Edge[T] {
 	return edge
 }
 
+// nodeRef represents the relationship
+// between the source node and target node. Using the directed graph model,
+// the relation is "source -> target". The relation prefix is used to
+// distinguish between different types of relationships. For example, a "follows"
+// relation might represent a user following another user or a post being commented on by another user.
 type nodeRef struct {
-	HashID     string
-	HashPrefix string
-	SortID     string
-	SortPrefix string
-	Relation   string
+	TargetID     string
+	TargetPrefix string
+	SourceID     string
+	SourcePrefix string
+	Relation     string
 }
 
-func (n nodeRef) DynamoID() string                                   { return n.HashID }
-func (n nodeRef) DynamoPrefix() string                               { return n.HashPrefix }
+func (n nodeRef) DynamoID() string                                   { return n.TargetID }
+func (n nodeRef) DynamoPrefix() string                               { return n.TargetPrefix }
 func (n nodeRef) DynamoItemType() string                             { return n.Relation }
-func (nodeRef) DynamoRelationships() map[string][]Node               { return nil }
+func (nodeRef) DynamoRefs() map[string]Node                          { return nil }
 func (nodeRef) DynamoUnmarshal(createdAt, updatedAt time.Time) error { return nil }
 func (nodeRef) DynamoUnmarshalRef(string, string) error              { return nil }
 func (nodeRef) DynamoMarshal(createdAt, updatedAt time.Time) error   { return nil }
+func (nodeRef) DynamoMarshalRef(relation string) []Node              { return nil }
 
+// refItemType returns the item type for a reference edge.
+// The item type is a combination of the relation and the source node's item type.
+// This allows us to query for all references of a specific type.
+// For example, given source node type "user" and relation "follows",
+// the item type would be "follows:user"
+func refItemType(src Node, relation string) string {
+	return fmt.Sprintf("%s:%s", relation, src.DynamoItemType())
+}
+
+// newNodeRef creates a new reference edge that represents the relationship
+// between the source node and target node.
 func newNodeRef(src, tgt Node, relation string) Edge[*nodeRef] {
 	return NewEdge(&nodeRef{
-		HashID:     tgt.DynamoID(),
-		HashPrefix: tgt.DynamoPrefix(),
-		SortID:     src.DynamoID(),
-		SortPrefix: src.DynamoPrefix(),
-		Relation:   relation,
+		TargetID:     tgt.DynamoID(),
+		TargetPrefix: tgt.DynamoPrefix(),
+		SourceID:     src.DynamoID(),
+		SourcePrefix: src.DynamoPrefix(),
+		Relation:     relation,
 	}, func(io *EdgeOptions) {
-		io.ItemType = fmt.Sprintf("ref:%s", relation)
+		io.ItemType = refItemType(src, relation)
 		io.SupportsCollectionIndex = false
 		io.SupportsReverseLookupIndex = true
 	})
@@ -135,13 +155,14 @@ func (e Edge[T]) Key() ezddb.Item {
 }
 
 func (e Edge[T]) refs() []Edge[*nodeRef] {
-	relationships := e.Data.DynamoRelationships()
+	relationships := e.Data.DynamoRefs()
 	if len(relationships) == 0 {
 		return nil
 	}
 
 	refs := make([]Edge[*nodeRef], 0, len(relationships))
-	for name, nodes := range relationships {
+	for name := range relationships {
+		nodes := e.Data.DynamoMarshalRef(name)
 		for _, node := range nodes {
 			refs = append(refs, newNodeRef(e.Data, node, name))
 		}
@@ -160,15 +181,4 @@ func (e *Edge[T]) unmarshal(item ezddb.Item, u ezddb.ItemUnmarshaler) error {
 		return err
 	}
 	return e.Data.DynamoUnmarshal(e.CreatedAt, e.UpdatedAt)
-}
-
-type filters[T any] struct{}
-
-func Filters[T Node](item T) filters[T] {
-	return filters[T]{}
-}
-
-func (f filters[T]) RelationEquals(relation string) filter.Expression {
-	attr := filter.AttributeOf[T](AttributeItemType)
-	return filter.Equals[T](attr, fmt.Sprintf("ref:%s", relation))
 }
