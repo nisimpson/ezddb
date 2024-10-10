@@ -144,13 +144,13 @@ func (g Graph[T]) Result(item ezddb.Item, opts ...OptionsFunc) (node T, err erro
 	return edge.Data, err
 }
 
-type criteria[T any] interface {
-	search(context.Context, *Options) (*dynamodb.QueryInput, error)
+type QueryBuilder[T any] interface {
+	queryInput(context.Context, *Options) (*dynamodb.QueryInput, error)
 }
 
-func (g Graph[T]) Search(searcher criteria[T], opts ...OptionsFunc) operation.QueryOperation {
+func (g Graph[T]) Search(criteria QueryBuilder[T], opts ...OptionsFunc) operation.QueryOperation {
 	g.options.apply(opts)
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		return searcher.search(ctx, &g.options)
+		return criteria.queryInput(ctx, &g.options)
 	}
 }

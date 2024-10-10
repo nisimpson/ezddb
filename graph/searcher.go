@@ -17,29 +17,38 @@ type listsearch[T Node] struct {
 	itemType      string
 	createdBefore time.Time
 	createdAfter  time.Time
+	filter        filter.Expression
 }
 
 func ListOf[T Node](template T) listsearch[T] {
 	return listsearch[T]{itemType: template.DynamoItemType()}
 }
 
-func (s listsearch[T]) WithCreationDateBetween(start, end time.Time) listsearch[T] {
+func (s listsearch[T]) WithDateFilter(start, end time.Time) listsearch[T] {
 	s.createdAfter = start
 	s.createdBefore = end
 	return s
 }
 
-func (s listsearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) criteria[T] {
+func (s listsearch[T]) WithFilter(e filter.Expression, and ...filter.Expression) listsearch[T] {
+	s.filter = e
+	for _, item := range and {
+		s.filter = filter.And(s.filter, item)
+	}
+	return s
+}
+
+func (s listsearch[T]) Criteria(mods ...operation.QueryModifier) QueryBuilder[T] {
 	builder := expression.NewBuilder()
 	keyCondition := itemTypeEquals(s.itemType)
 	if !(s.createdAfter.IsZero() || s.createdBefore.IsZero()) {
 		keyCondition = keyCondition.And(gsi2SkBetween(s.createdAfter, s.createdBefore))
 	}
 	builder = builder.WithKeyCondition(keyCondition)
-	return newSearcher[T](e, builder, indexTypeCollection, mods)
+	return newQueryBuilder[T](s.filter, builder, indexTypeCollection, mods)
 }
 
-func (listsearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (nodes []T, cursor string, err error) {
+func (listsearch[T]) Scan(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (nodes []T, cursor string, err error) {
 	nodes = make([]T, 0, len(output.Items))
 	for _, item := range output.Items {
 		node, nodeerr := g.Result(item, opts...)
@@ -57,6 +66,7 @@ func (listsearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...Op
 type nodesearch[T Node] struct {
 	item       T
 	edgePrefix string
+	filter     filter.Expression
 }
 
 func NodeOf[T Node](node T) nodesearch[T] {
@@ -68,7 +78,15 @@ func EdgesOf[T Node, U Node](source T, target U) nodesearch[T] {
 	return nodesearch[T]{item: source, edgePrefix: prefix}
 }
 
-func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) criteria[T] {
+func (s nodesearch[T]) WithFilter(e filter.Expression, and ...filter.Expression) nodesearch[T] {
+	s.filter = e
+	for _, item := range and {
+		s.filter = filter.And(s.filter, item)
+	}
+	return s
+}
+
+func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModifier) QueryBuilder[T] {
 	item := NewEdge(s.item)
 	builder := expression.NewBuilder()
 	keyCond := skEquals(item.SK)
@@ -76,7 +94,7 @@ func (s nodesearch[T]) Criteria(e filter.Expression, mods ...operation.QueryModi
 		keyCond = keyCond.And(gsi1SkBeginsWith(s.edgePrefix))
 	}
 	builder = builder.WithKeyCondition(keyCond)
-	return newSearcher[T](e, builder, indexTypeReverseLookup, mods)
+	return newQueryBuilder[T](s.filter, builder, indexTypeReverseLookup, mods)
 }
 
 func (s nodesearch[T]) Result(g Graph[T], output *dynamodb.QueryOutput, opts ...OptionsFunc) (node T, cursor string, err error) {
@@ -114,8 +132,8 @@ const (
 	indexTypeReverseLookup
 )
 
-func newSearcher[T any](e filter.Expression, b expression.Builder, indexType searchIndexType, mods []operation.QueryModifier) criteria[T] {
-	return searcherFunc[T](
+func newQueryBuilder[T any](e filter.Expression, b expression.Builder, indexType searchIndexType, mods []operation.QueryModifier) QueryBuilder[T] {
+	return queryBuilderFunc[T](
 		func(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
 			var errs []error = make([]error, 0)
 			var condition expression.ConditionBuilder
@@ -142,9 +160,9 @@ func newSearcher[T any](e filter.Expression, b expression.Builder, indexType sea
 	)
 }
 
-type searcherFunc[T any] func(context.Context, *Options) (*dynamodb.QueryInput, error)
+type queryBuilderFunc[T any] func(context.Context, *Options) (*dynamodb.QueryInput, error)
 
-func (f searcherFunc[T]) search(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
+func (f queryBuilderFunc[T]) queryInput(ctx context.Context, o *Options) (*dynamodb.QueryInput, error) {
 	return f(ctx, o)
 }
 
