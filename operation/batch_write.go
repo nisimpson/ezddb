@@ -55,7 +55,7 @@ func (c BatchWriteCollection) Execute(ctx context.Context,
 	return c.mergeOutput(output), errors.Join(errs...)
 }
 
-func (c BatchWriteCollection) ExecuteAsync(ctx context.Context,
+func (c BatchWriteCollection) ExecuteConcurrently(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	ops := c.Join()
 	wg := &sync.WaitGroup{}

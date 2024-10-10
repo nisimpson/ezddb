@@ -28,7 +28,7 @@ func (p ScanOperation) Modify(modifiers ...ScanModifier) ScanOperation {
 		return mod.ModifyScanInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.ScanInput, error) {
-		return modify[dynamodb.ScanInput](ctx, p, newModiferGroup(modifiers, mapper).Join())
+		return modify(ctx, p, newModiferGroup(modifiers, mapper).Join())
 	}
 }
 

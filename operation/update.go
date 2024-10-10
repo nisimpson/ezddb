@@ -36,7 +36,7 @@ func (u UpdateOperation) Modify(modifiers ...UpdateModifier) UpdateOperation {
 		return mod.ModifyUpdateItemInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
-		return modify[dynamodb.UpdateItemInput](ctx, u, newModiferGroup(modifiers, mapper).Join())
+		return modify(ctx, u, newModiferGroup(modifiers, mapper).Join())
 	}
 }
 

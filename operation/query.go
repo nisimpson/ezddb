@@ -35,7 +35,7 @@ func (p QueryOperation) Modify(modifiers ...QueryModifier) QueryOperation {
 		return mod.ModifyQueryInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		return modify[dynamodb.QueryInput](ctx, p, newModiferGroup(modifiers, mapper).Join())
+		return modify(ctx, p, newModiferGroup(modifiers, mapper).Join())
 	}
 }
 

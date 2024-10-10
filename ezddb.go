@@ -3,6 +3,7 @@ package ezddb
 import (
 	"context"
 
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
@@ -12,6 +13,14 @@ type Item = map[string]types.AttributeValue
 type ItemMarshaler = func(any) (Item, error)
 
 type ItemUnmarshaler = func(Item, any) error
+
+type ItemVisitor interface {
+	VisitItem(i Item, unmarshal ItemUnmarshaler) error
+}
+
+func VisitItem(i Item, visitor ItemVisitor) error {
+	return visitor.VisitItem(i, attributevalue.UnmarshalMap)
+}
 
 // Querier implements the dynamodb Query API.
 type Querier interface {

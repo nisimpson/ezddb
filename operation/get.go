@@ -37,7 +37,7 @@ func (p GetOperation) Modify(modifiers ...GetModifier) GetOperation {
 		return mod.ModifyGetItemInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
-		return modify[dynamodb.GetItemInput](ctx, p, newModiferGroup(modifiers, mapper).Join())
+		return modify(ctx, p, newModiferGroup(modifiers, mapper).Join())
 	}
 }
 

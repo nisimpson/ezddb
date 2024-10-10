@@ -37,7 +37,7 @@ func (d DeleteOperation) Modify(modifiers ...DeleteModifier) DeleteOperation {
 		return mod.ModifyDeleteItemInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
-		return modify[dynamodb.DeleteItemInput](ctx, d, newModiferGroup(modifiers, mapper).Join())
+		return modify(ctx, d, newModiferGroup(modifiers, mapper).Join())
 	}
 }
 
