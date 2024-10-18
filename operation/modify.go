@@ -113,6 +113,17 @@ func (w withExpressionBuilder) ModifyScanInput(ctx context.Context, input *dynam
 	return nil
 }
 
+func (w withExpressionBuilder) ModifyUpdateItemInput(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	expr, err := w.build(w.builder)
+	if err != nil {
+		return err
+	}
+	input.UpdateExpression = expr.Update()
+	input.ExpressionAttributeNames = expr.Names()
+	input.ExpressionAttributeValues = expr.Values()
+	return nil
+}
+
 type invoker[T any] interface {
 	Invoke(context.Context) (*T, error)
 }

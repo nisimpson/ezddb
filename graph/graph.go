@@ -1,223 +1,321 @@
 package graph
 
 import (
-	"context"
-	"fmt"
+	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
+	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
 )
 
-const (
-	DefaultCollectionQueryIndexName = "collection-query-index"
-	DefaultReverseLookupIndexName   = "reverse-lookup-index"
-)
+type Node interface {
+	DynamoNodeID() string
+	DynamoNodePrefix() string
+	DynamoNodeType() string
+	DynamoNodeRelationships() map[string]Node
+	DynamoNodeRefIsReverseLookup(relation string) bool
+	DynamoNodeRef(relation string) []Node
+	SetDynamoNodeRef(relation string, refID string)
+	SetDynamoNodeTimestamp(created, updated time.Time)
+}
+
+type nodeRef struct {
+	Relationship     string `dynamodbav:"relationship"`
+	SourceNodeID     string `dynamodbav:"sourceNodeID"`
+	SourceNodePrefix string `dynamodbav:"sourceNodePrefix"`
+	SourceNodeType   string `dynamodbav:"sourceNodeType"`
+	TargetNodeID     string `dynamodbav:"targetNodeID"`
+	TargetNodePrefix string `dynamodbav:"targetNodePrefix"`
+	TargetNodeType   string `dynamodbav:"targetNodeType"`
+}
+
+func newNodeRef(source, target Node, relation string, reverse bool) nodeRef {
+	src, tgt := source, target
+	if reverse {
+		// relationships are stored in reverse order
+		// so the source partition remains reasonably bounded.
+		// these items can be retrieved together with the source
+		// node on a reverse lookup query.
+		src, tgt = target, source
+	}
+	return nodeRef{
+		Relationship:     relation,
+		SourceNodeID:     src.DynamoNodeID(),
+		SourceNodePrefix: src.DynamoNodePrefix(),
+		SourceNodeType:   src.DynamoNodeType(),
+		TargetNodeID:     tgt.DynamoNodeID(),
+		TargetNodePrefix: tgt.DynamoNodePrefix(),
+		TargetNodeType:   tgt.DynamoNodeType(),
+	}
+}
+
+func (n nodeRef) DynamoItemType() string { return n.Relationship }
+
+func (n nodeRef) DynamoMarshalRecord(options *MarshalOptions) {
+	options.HashID = n.SourceNodeID
+	options.SortID = n.TargetNodeID
+	options.HashPrefix = n.SourceNodePrefix
+	options.SortPrefix = n.TargetNodePrefix
+	options.SupportReverseLookup = true
+	options.SupportCollectionQuery = false
+}
+
+type edge[T Node] struct {
+	Node T `dynamodbav:"node"`
+}
+
+func (e edge[T]) DynamoItemType() string { return e.Node.DynamoNodeType() }
+
+func (e edge[T]) DynamoMarshalRecord(options *MarshalOptions) {
+	options.HashID = e.Node.DynamoNodeID()
+	options.SortID = e.Node.DynamoNodeID()
+	options.HashPrefix = e.Node.DynamoNodePrefix()
+	options.SortPrefix = e.Node.DynamoNodePrefix()
+	options.SupportReverseLookup = true
+	options.SupportCollectionQuery = true
+}
 
 type Graph[T Node] struct {
-	options Options
+	nodes Table[edge[T]]
+	refs  Table[nodeRef]
 }
 
-type Options struct {
-	ezddb.StartKeyTokenProvider
-	ezddb.StartKeyProvider
-	TableName                string
-	CollectionQueryIndexName string
-	ReverseLookupIndexName   string
-	BuildExpression          operation.BuildExpressionFunc
-	MarshalItem              ezddb.ItemMarshaler
-	UnmarshalItem            ezddb.ItemUnmarshaler
-	Tick                     Clock
-}
-
-type OptionsFunc = func(*Options)
-
-func (o *Options) apply(opts []OptionsFunc) {
-	for _, opt := range opts {
-		opt(o)
+func New[T Node](tableName string, opts ...func(*Options)) Graph[T] {
+	return Graph[T]{
+		nodes: NewTable[edge[T]](tableName, opts...),
+		refs:  NewTable[nodeRef](tableName, opts...),
 	}
 }
 
-func Of[T Node](tableName string, opts ...OptionsFunc) Graph[T] {
-	options := Options{
-		CollectionQueryIndexName: "collection-query-index",
-		ReverseLookupIndexName:   "reverse-lookup-index",
-		BuildExpression:          operation.BuildExpression,
-		MarshalItem:              attributevalue.MarshalMap,
-		UnmarshalItem:            attributevalue.UnmarshalMap,
-		Tick:                     time.Now,
+func (g Graph[T]) refsOf(node T) []nodeRef {
+	refs := node.DynamoNodeRelationships()
+	items := make([]nodeRef, 0, len(refs))
+
+	for relation := range refs {
+		reverse := node.DynamoNodeRefIsReverseLookup(relation)
+		for _, ref := range node.DynamoNodeRef(relation) {
+			record := newNodeRef(node, ref, relation, reverse)
+			items = append(items, record)
+		}
 	}
-	options.apply(opts)
-	return Graph[T]{options: options}
+	return items
 }
 
-func (g Graph[T]) PutEdges(data T, opts ...OptionsFunc) operation.BatchWriteCollection {
-	g.options.apply(opts)
-	node := NewEdge(data)
-	refs := node.refs()
-	mods := make(operation.BatchWriteCollection, 0, len(refs)+1)
+func (g Graph[T]) PutsNode(node T, opts ...func(*Options)) operation.PutOperation {
+	return g.nodes.Puts(edge[T]{Node: node}, opts...)
+}
+
+func (g Graph[T]) PutsEdges(node T, opts ...func(*Options)) operation.BatchWriteCollection {
+	batches := make(operation.BatchWriteCollection, 0)
+	for _, ref := range g.refsOf(node) {
+		batches = append(batches, g.refs.Puts(ref))
+	}
+	return batches
+}
+
+func (g Graph[T]) GetsNode(node T, opts ...func(*Options)) operation.GetOperation {
+	return g.nodes.Gets(edge[T]{Node: node}, opts...)
+}
+
+func (g Graph[T]) UpdatesNode(node T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateOperation {
+	return g.nodes.Updates(edge[T]{Node: node}, strategy, opts...)
+}
+
+type NodeAttribute string
+
+func (a NodeAttribute) FilterAttribute() filter.Attribute {
+	return filter.AttributeOf("data", "node", string(a))
+}
+
+func (a NodeAttribute) ExpressionName() expression.NameBuilder {
+	name := strings.Join([]string{"data", "node", string(a)}, ".")
+	return expression.Name(name)
+}
+
+func (g Graph[T]) DeletesNode(node T, opts ...func(*Options)) operation.DeleteOperation {
+	return g.nodes.Deletes(edge[T]{Node: node}, opts...)
+}
+
+func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) operation.BatchWriteCollection {
+	g.refs.options.apply(opts)
+	var (
+		reverse    = node.DynamoNodeRefIsReverseLookup(relation)
+		refs       = node.DynamoNodeRef(relation)
+		collection = make(operation.BatchWriteCollection, 0, len(refs))
+	)
+
 	for _, ref := range refs {
-		mods = append(mods, g.put(ref))
+		collection = append(collection, g.refs.Deletes(newNodeRef(node, ref, relation, reverse)))
 	}
-	return mods
+
+	return collection
 }
 
-func (g Graph[T]) Put(data T, opts ...OptionsFunc) operation.PutOperation {
-	g.options.apply(opts)
-	node := NewEdge(data)
-	return g.put(node)
-}
+func (g Graph[T]) DeletesAllEdges(node T, opts ...func(*Options)) operation.BatchWriteCollection {
+	var (
+		definitions = node.DynamoNodeRelationships()
+		collection  = make(operation.BatchWriteCollection, 0)
+	)
 
-type puttable interface {
-	marshal(ezddb.ItemMarshaler) (ezddb.Item, error)
-}
-
-func (g Graph[T]) put(puttable puttable) operation.PutOperation {
-	item, err := puttable.marshal(g.options.MarshalItem)
-	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
-		if err != nil {
-			return nil, fmt.Errorf("put failed: %s", err)
-		}
-		return &dynamodb.PutItemInput{
-			TableName: &g.options.TableName,
-			Item:      item,
-		}, nil
+	for def := range definitions {
+		collection = append(collection, g.DeletesEdges(node, def)...)
 	}
+
+	return collection
 }
 
-func (g Graph[T]) Get(id T, opts ...OptionsFunc) operation.GetOperation {
-	g.options.apply(opts)
-	key := NewEdge(id).Key()
-	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
-		return &dynamodb.GetItemInput{
-			TableName: &g.options.TableName,
-			Key:       key,
-		}, nil
-	}
-}
-
-func (g Graph[T]) Delete(id T, opts ...OptionsFunc) operation.DeleteOperation {
-	g.options.apply(opts)
-	key := NewEdge(id).Key()
-	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
-		return &dynamodb.DeleteItemInput{
-			TableName: &g.options.TableName,
-			Key:       key,
-		}, nil
-	}
-}
-
-type updater[T any] interface {
-	update(expression.UpdateBuilder) (ezddb.Item, expression.UpdateBuilder)
-}
-
-func (g Graph[T]) Update(updater updater[T], opts ...OptionsFunc) operation.UpdateOperation {
-	g.options.apply(opts)
-	ts := g.options.Tick().UTC().Format(time.RFC3339)
-	update := expression.Set(expression.Name(AttributeUpdatedAt), expression.Value(ts))
-	key, update := updater.update(update)
-	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
-		expr, err := g.options.BuildExpression(expression.NewBuilder().WithUpdate(update))
-		if err != nil {
-			return nil, fmt.Errorf("update failed: build expression: %w", err)
-		}
-		return &dynamodb.UpdateItemInput{
-			TableName:                 &g.options.TableName,
-			Key:                       key,
-			UpdateExpression:          expr.Update(),
-			ExpressionAttributeNames:  expr.Names(),
-			ExpressionAttributeValues: expr.Values(),
-			ReturnValues:              types.ReturnValueAllNew,
-		}, nil
-	}
-}
-
-func (g Graph[T]) UnmarshalNode(item ezddb.Item, opts ...OptionsFunc) (node T, err error) {
-	if item == nil {
-		return node, ErrNotFound
-	}
-	g.options.apply(opts)
-	edge := Edge[T]{}
-	err = edge.unmarshal(item, g.options.UnmarshalItem)
+func (g Graph[T]) UnmarshalNode(item ezddb.Item, opts ...func(*Options)) (T, error) {
+	g.nodes.options.apply(opts)
+	record, err := g.nodes.Unmarshal(item)
+	var node T
 	if err != nil {
-		err = fmt.Errorf("failed to unmarshal edge (%v): %w", item, err)
 		return node, err
 	}
-	err = edge.Data.DynamoUnmarshal(edge.CreatedAt, edge.UpdatedAt)
-	return edge.Data, err
+	node = record.Data.Node
+	node.SetDynamoNodeTimestamp(record.CreatedAt, record.UpdatedAt)
+	return node, nil
 }
 
-type refmap[T Node] map[string][]Node
-
-func (m refmap[T]) Apply(node T) {
-	for relation, refs := range m {
-		for _, ref := range refs {
-			node.DynamoUnmarshalRef(relation, ref.DynamoID())
-		}
-	}
-}
-
-func (g Graph[T]) UnmarshalEdges(node T, items []ezddb.Item, opts ...OptionsFunc) (out T, refs refmap[T], err error) {
-	g.options.apply(opts)
-	refGraph := Graph[nodeRef](g)
-	refs = make(refmap[T])
-	out = node
+func (g Graph[T]) UnmarshalNodeList(items []ezddb.Item, opts ...func(*Options)) ([]T, error) {
+	g.nodes.options.apply(opts)
+	result := make([]T, 0, len(items))
 	for _, item := range items {
-		if ok := itemIsTypeOf(node, item); ok {
-			out, err = g.UnmarshalNode(item)
-			if err != nil {
-				return
-			}
-			continue
+		node, err := g.UnmarshalNode(item)
+		if err != nil {
+			return nil, err
 		}
-		ref, referr := refGraph.UnmarshalNode(item)
-		if referr != nil {
-			err = referr
-			return
-		}
-		refs[ref.Relation] = append(refs[ref.Relation], ref)
+		result = append(result, node)
 	}
-	return
+	return result, nil
 }
 
-func (g Graph[T]) UnmarshalList(items []ezddb.Item, opts ...OptionsFunc) (out []T, err error) {
-	g.options.apply(opts)
-	out = make([]T, len(items))
-	for i, item := range items {
-		node, nerr := g.UnmarshalNode(item)
-		if nerr != nil {
-			err = nerr
-			return
+func (g Graph[T]) UnmarshalEdgeList(node T, items []ezddb.Item, opts ...func(*Options)) error {
+	g.refs.options.apply(opts)
+	for _, item := range items {
+		err := g.UnmarshalEdge(node, item)
+		if err != nil {
+			return err
 		}
-		out[i] = node
 	}
-	return
+
+	return nil
 }
 
-func (g Graph[T]) UnmarshalPageCursor(lastEvaluatedKey ezddb.Item, opts ...OptionsFunc) (token string, err error) {
-	g.options.apply(opts)
-	if lastEvaluatedKey == nil {
-		return "", nil
-	}
-	token, err = g.options.StartKeyTokenProvider.GetStartKeyToken(context.TODO(), lastEvaluatedKey)
+func (g Graph[T]) UnmarshalEdge(node T, item ezddb.Item, opts ...func(*Options)) error {
+	g.refs.options.apply(opts)
+	record, err := g.refs.Unmarshal(item)
 	if err != nil {
-		err = fmt.Errorf("failed to get token: %w", err)
-		return
+		return err
 	}
-	return
+
+	var (
+		relationship = record.Data.Relationship
+		reverse      = node.DynamoNodeRefIsReverseLookup(relationship)
+	)
+
+	if reverse {
+		node.SetDynamoNodeRef(relationship, record.Data.SourceNodeID)
+	} else {
+		node.SetDynamoNodeRef(relationship, record.Data.TargetNodeID)
+	}
+
+	return nil
 }
 
-type QueryBuilder[T any] interface {
-	queryInput(context.Context, *Options) (*dynamodb.QueryInput, error)
+type ListNodesQueryBuilder[T Node] struct {
+	node   T
+	graph  Graph[T]
+	cursor string
+	filter expression.ConditionBuilder
+	limit  int
 }
 
-func (g Graph[T]) Search(criteria QueryBuilder[T], opts ...OptionsFunc) operation.QueryOperation {
-	g.options.apply(opts)
-	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		return criteria.queryInput(ctx, &g.options)
+func (b ListNodesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+	return b.graph.nodes.Queries(CollectionQuery{
+		ItemType: b.node.DynamoNodeType(),
+		Cursor:   b.cursor,
+		Filter:   b.filter,
+		Limit:    b.limit,
+	}, opts...)
+}
+
+func (b *ListNodesQueryBuilder[T]) WithLimit(limit int) *ListNodesQueryBuilder[T] {
+	b.limit = limit
+	return b
+}
+
+func (b *ListNodesQueryBuilder[T]) WithCursor(cursor string, provider ezddb.StartKeyProvider) *ListNodesQueryBuilder[T] {
+	b.cursor = cursor
+	return b
+}
+
+func (b *ListNodesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListNodesQueryBuilder[T] {
+	b.filter = filter
+	return b
+}
+
+func (g Graph[T]) ListNodesQueryBuilder(node T, relation string) ListNodesQueryBuilder[T] {
+	return ListNodesQueryBuilder[T]{node: node, graph: g}
+}
+
+type ListEdgesQueryBuilder[T Node] struct {
+	node     T
+	relation string
+	graph    Graph[T]
+	cursor   string
+	filter   expression.ConditionBuilder
+	limit    int
+}
+
+func (g Graph[T]) ListEdgesQueryBuilder(node T, relation string) ListEdgesQueryBuilder[T] {
+	return ListEdgesQueryBuilder[T]{node: node, relation: relation, graph: g}
+}
+
+func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+	b.graph.nodes.options.apply(opts)
+	b.graph.refs.options.apply(opts)
+
+	var (
+		definitions    = b.node.DynamoNodeRelationships()
+		def            = definitions[b.relation]
+		marshalOptions = b.graph.nodes.options.MarshalOptions
+		record         = Marshal(edge[T]{Node: b.node}, marshalOptions...)
+	)
+
+	// perform a reverse lookup for the edges forming the target
+	// relationship.
+	if b.node.DynamoNodeRefIsReverseLookup(b.relation) {
+		return b.graph.refs.Queries(ReverseLookupQuery{
+			SortKeyValue:      record.SK,
+			GSI1SortKeyPrefix: def.DynamoNodePrefix(),
+			Cursor:            b.cursor,
+			Limit:             b.limit,
+		})
 	}
+
+	// perform a partition lookup for the edges forming the source
+	// relationship.
+	return b.graph.refs.Queries(LookupQuery{
+		PartitionKeyValue: record.PK,
+		SortKeyPrefix:     def.DynamoNodePrefix(),
+		Cursor:            b.cursor,
+		Limit:             b.limit,
+	})
+}
+
+func (b *ListEdgesQueryBuilder[T]) WithLimit(limit int) *ListEdgesQueryBuilder[T] {
+	b.limit = limit
+	return b
+}
+
+func (b *ListEdgesQueryBuilder[T]) WithCursor(cursor string, provider ezddb.StartKeyProvider) *ListEdgesQueryBuilder[T] {
+	b.cursor = cursor
+	return b
+}
+
+func (b *ListEdgesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListEdgesQueryBuilder[T] {
+	b.filter = filter
+	return b
 }
