@@ -152,7 +152,7 @@ func (g Graph[T]) ListNodesQueryBuilder(node T, relation string) ListNodesQueryB
 	return ListNodesQueryBuilder[T]{node: node, graph: g}
 }
 
-type ListNodeEdgesQueryBuilder[T Node] struct {
+type ListEdgesQueryBuilder[T Node] struct {
 	node     T
 	relation string
 	graph    Graph[T]
@@ -161,11 +161,11 @@ type ListNodeEdgesQueryBuilder[T Node] struct {
 	limit    int
 }
 
-func (g Graph[T]) ListNodeEdgesQueryBuilder(node T, relation string) ListNodeEdgesQueryBuilder[T] {
-	return ListNodeEdgesQueryBuilder[T]{node: node, relation: relation, graph: g}
+func (g Graph[T]) ListEdgesQueryBuilder(node T, relation string) ListEdgesQueryBuilder[T] {
+	return ListEdgesQueryBuilder[T]{node: node, relation: relation, graph: g}
 }
 
-func (b ListNodeEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
 	b.graph.nodes.options.apply(opts)
 	b.graph.refs.options.apply(opts)
 
@@ -197,17 +197,17 @@ func (b ListNodeEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operati
 	})
 }
 
-func (b *ListNodeEdgesQueryBuilder[T]) WithLimit(limit int) *ListNodeEdgesQueryBuilder[T] {
+func (b *ListEdgesQueryBuilder[T]) WithLimit(limit int) *ListEdgesQueryBuilder[T] {
 	b.limit = limit
 	return b
 }
 
-func (b *ListNodeEdgesQueryBuilder[T]) WithCursor(cursor string) *ListNodeEdgesQueryBuilder[T] {
+func (b *ListEdgesQueryBuilder[T]) WithCursor(cursor string) *ListEdgesQueryBuilder[T] {
 	b.cursor = cursor
 	return b
 }
 
-func (b *ListNodeEdgesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListNodeEdgesQueryBuilder[T] {
+func (b *ListEdgesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListEdgesQueryBuilder[T] {
 	b.filter = filter
 	return b
 }
