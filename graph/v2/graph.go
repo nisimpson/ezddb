@@ -1,272 +1,213 @@
 package graph
 
 import (
-	"context"
-	"fmt"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
 )
 
-const (
-	DefaultDelimiter = ":"
-
-	AttributeNamePK                   = "pk"
-	AttributeNameSK                   = "sk"
-	AttributeNameItemType             = "itemType"
-	AttributeNameCollectionSortKey    = "gsi2sk"
-	AttributeNameReverseLookupSortKey = "gsi1sk"
-	AttributeNameData                 = "data"
-)
-
-type Data interface {
-	DynamoItemType() string
-	DynamoMarshalRecord(*MarshalOptions)
+type Node interface {
+	DynamoNodeID() string
+	DynamoNodePrefix() string
+	DynamoNodeType() string
+	DynamoNodeRelationships() map[string]Node
+	DynamoNodeRefIsReverseLookup(relation string) bool
+	DynamoNodeRef(relation string) []Node
+	SetDynamoNodeRef(relation string, refID string)
+	SetDynamoNodeTimestamp(created, updated time.Time)
 }
 
-type Record[T Data] struct {
-	PK       string    `dynamodbav:"pk"`
-	SK       string    `dynamodbav:"sk"`
-	ItemType string    `dynamodbav:"itemType"`
-	GSI1SK   string    `dynamodbav:"gsi1sk,omitempty"`
-	GSI2SK   string    `dynamodbav:"gsi2sk,omitempty"`
-	Expires  time.Time `dynamodbav:"expires,unixtime"`
-	Data     *T        `dynamodbav:"data"`
+type nodeRef struct {
+	Relationship     string `dynamodbav:"relationship"`
+	SourceNodeID     string `dynamodbav:"sourceNodeID"`
+	SourceNodePrefix string `dynamodbav:"sourceNodePrefix"`
+	SourceNodeType   string `dynamodbav:"sourceNodeType"`
+	TargetNodeID     string `dynamodbav:"targetNodeID"`
+	TargetNodePrefix string `dynamodbav:"targetNodePrefix"`
+	TargetNodeType   string `dynamodbav:"targetNodeType"`
 }
 
-func (r Record[T]) Key() ezddb.Item {
-	return ezddb.Item{
-		AttributeNamePK: &types.AttributeValueMemberS{Value: r.PK},
-		AttributeNameSK: &types.AttributeValueMemberS{Value: r.SK},
+func newNodeRef(source, target Node, relation string, reverse bool) nodeRef {
+	src, tgt := source, target
+	if reverse {
+		// relationships are stored in reverse order
+		// so the source partition remains reasonably bounded.
+		// these items can be retrieved together with the source
+		// node on a reverse lookup query.
+		src, tgt = target, source
+	}
+	return nodeRef{
+		Relationship:     relation,
+		SourceNodeID:     src.DynamoNodeID(),
+		SourceNodePrefix: src.DynamoNodePrefix(),
+		SourceNodeType:   src.DynamoNodeType(),
+		TargetNodeID:     tgt.DynamoNodeID(),
+		TargetNodePrefix: tgt.DynamoNodePrefix(),
+		TargetNodeType:   tgt.DynamoNodeType(),
 	}
 }
 
-type clock func() time.Time
+func (n nodeRef) DynamoItemType() string { return n.Relationship }
 
-type MarshalOptions struct {
-	HashID                 string
-	SortID                 string
-	HashPrefix             string
-	SortPrefix             string
-	Delimiter              string
-	CollectionQuerySortKey string
-	AllowReverseLookup     bool
-	Tick                   clock
-	ExpirationDate         time.Time
+func (n nodeRef) DynamoMarshalRecord(options *MarshalOptions) {
+	options.HashID = n.SourceNodeID
+	options.SortID = n.TargetNodeID
+	options.HashPrefix = n.SourceNodePrefix
+	options.SortPrefix = n.TargetNodePrefix
+	options.SupportReverseLookup = true
+	options.SupportCollectionQuery = false
 }
 
-func Marshal[T Data](data T, opts ...func(*MarshalOptions)) Record[T] {
-	options := MarshalOptions{
-		Tick: time.Now,
-	}
-
-	// marshal data
-	data.DynamoMarshalRecord(&options)
-
-	// apply additional marshal options to override behavior
-	for _, opt := range opts {
-		opt(&options)
-	}
-
-	record := Record[T]{
-		PK:       options.HashPrefix + DefaultDelimiter + options.HashID,
-		SK:       options.SortPrefix + DefaultDelimiter + options.SortID,
-		ItemType: data.DynamoItemType(),
-		Data:     &data,
-		Expires:  options.ExpirationDate,
-		GSI2SK:   options.CollectionQuerySortKey,
-	}
-
-	if options.AllowReverseLookup {
-		record.GSI1SK = record.PK
-	}
-
-	return record
+type edge[T Node] struct {
+	Node T `dynamodbav:"node"`
 }
 
-type Options struct {
-	TableName                string
-	ReverseLookupIndexName   string
-	CollectionQueryIndexName string
-	MarshalMap               ezddb.ItemMarshaler
-	UnmarshalMap             ezddb.ItemUnmarshaler
-	MarshalOptions           []func(*MarshalOptions)
-	PageCursorProvider       ezddb.StartKeyTokenProvider
+func (e edge[T]) DynamoItemType() string { return e.Node.DynamoNodeType() }
+
+func (e edge[T]) DynamoMarshalRecord(options *MarshalOptions) {
+	options.HashID = e.Node.DynamoNodeID()
+	options.SortID = e.Node.DynamoNodeID()
+	options.HashPrefix = e.Node.DynamoNodePrefix()
+	options.SortPrefix = e.Node.DynamoNodePrefix()
+	options.SupportReverseLookup = true
+	options.SupportCollectionQuery = true
 }
 
-func (o *Options) apply(opts []func(*Options)) {
-	for _, opt := range opts {
-		opt(o)
+type Graph[T Node] struct {
+	nodes Table[edge[T]]
+	refs  Table[nodeRef]
+}
+
+func New[T Node](tableName string, opts ...func(*Options)) Graph[T] {
+	return Graph[T]{
+		nodes: NewTable[edge[T]](tableName, opts...),
+		refs:  NewTable[nodeRef](tableName, opts...),
 	}
 }
 
-type Table[T Data] struct {
-	options Options
-}
+func (g Graph[T]) refsOf(node T) []nodeRef {
+	refs := node.DynamoNodeRelationships()
+	items := make([]nodeRef, 0, len(refs))
 
-func New[T Data](tableName string, opts ...func(*Options)) *Table[T] {
-	options := Options{
-		TableName:                tableName,
-		ReverseLookupIndexName:   "reverse-lookup-index",
-		CollectionQueryIndexName: "collection-query-index",
-	}
-
-	options.apply(opts)
-	return newTable[T](options)
-}
-
-func newTable[T Data](options Options) *Table[T] {
-	return &Table[T]{options: options}
-}
-
-func (t Table[T]) PutFunc(ctx context.Context, data T, opts ...func(*Options)) operation.PutOperation {
-	t.options.apply(opts)
-	record := Marshal(data, t.options.MarshalOptions...)
-	item, err := t.options.MarshalMap(record)
-	if err != nil {
-		err = fmt.Errorf("put func: marshal: %w", err)
-	}
-
-	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
-		return &dynamodb.PutItemInput{
-			TableName: &t.options.TableName,
-			Item:      item,
-		}, err
-	}
-}
-
-func (t Table[T]) GetFunc(ctx context.Context, data T, opts ...func(*Options)) operation.GetOperation {
-	t.options.apply(opts)
-	record := Marshal(data, t.options.MarshalOptions...)
-	key := record.Key()
-	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
-		return &dynamodb.GetItemInput{
-			TableName: &t.options.TableName,
-			Key:       key,
-		}, nil
-	}
-}
-
-func (t Table[T]) DeleteFunc(ctx context.Context, data T, opts ...func(*Options)) operation.DeleteOperation {
-	t.options.apply(opts)
-	record := Marshal(data, t.options.MarshalOptions...)
-	key := record.Key()
-	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
-		return &dynamodb.DeleteItemInput{
-			TableName: &t.options.TableName,
-			Key:       key,
-		}, nil
-	}
-}
-
-type QueryCriteria interface {
-	indexName(Options) string
-	expression(builder expression.Builder) (expression.Expression, error)
-}
-
-func (t Table[T]) QueryFunc(ctx context.Context, criteria QueryCriteria, opts ...func(*Options)) operation.QueryOperation {
-	t.options.apply(opts)
-	expr, err := criteria.expression(expression.NewBuilder())
-	if err != nil {
-		err = fmt.Errorf("query func: expression: %w", err)
-	}
-
-	indexName := criteria.indexName(t.options)
-	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
-		input := &dynamodb.QueryInput{
-			TableName:                 &t.options.TableName,
-			KeyConditionExpression:    expr.Condition(),
-			ExpressionAttributeNames:  expr.Names(),
-			ExpressionAttributeValues: expr.Values(),
-			IndexName:                 &indexName,
+	for relation := range refs {
+		reverse := node.DynamoNodeRefIsReverseLookup(relation)
+		for _, ref := range node.DynamoNodeRef(relation) {
+			record := newNodeRef(node, ref, relation, reverse)
+			items = append(items, record)
 		}
-		if indexName == "" {
-			input.IndexName = nil
-		}
-		return input, err
 	}
+	return items
 }
 
-type QueryCollectionCriteria struct {
-	Cursor        string
-	Filter        filter.Expression
-	CreatedBefore time.Time
-	CreatedAfter  time.Time
-	itemType      string
+func (g Graph[T]) PutsNode(node T, opts ...func(*Options)) operation.PutOperation {
+	return g.nodes.Puts(edge[T]{Node: node}, opts...)
 }
 
-func (t Table[T]) QueryCollection(opts ...func(*QueryCollectionCriteria)) QueryCollectionCriteria {
-	var data T
-	criteria := QueryCollectionCriteria{
-		itemType: data.DynamoItemType(),
+func (g Graph[T]) PutsEdges(node T, opts ...func(*Options)) operation.BatchWriteCollection {
+	batches := make(operation.BatchWriteCollection, 0)
+	for _, ref := range g.refsOf(node) {
+		batches = append(batches, g.refs.Puts(ref))
 	}
-	for _, opt := range opts {
-		opt(&criteria)
+	return batches
+}
+
+func (g Graph[T]) GetsNode(node T, opts ...func(*Options)) operation.GetOperation {
+	return g.nodes.Gets(edge[T]{Node: node}, opts...)
+}
+
+type ListNodesQueryBuilder[T Node] struct {
+	node   T
+	graph  Graph[T]
+	cursor string
+	filter expression.ConditionBuilder
+	limit  int
+}
+
+func (b ListNodesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+	return b.graph.nodes.Queries(CollectionQuery{
+		ItemType: b.node.DynamoNodeType(),
+		Cursor:   b.cursor,
+		Filter:   b.filter,
+		Limit:    b.limit,
+	}, opts...)
+}
+
+func (b *ListNodesQueryBuilder[T]) WithLimit(limit int) *ListNodesQueryBuilder[T] {
+	b.limit = limit
+	return b
+}
+
+func (b *ListNodesQueryBuilder[T]) WithCursor(cursor string) *ListNodesQueryBuilder[T] {
+	b.cursor = cursor
+	return b
+}
+
+func (b *ListNodesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListNodesQueryBuilder[T] {
+	b.filter = filter
+	return b
+}
+
+func (g Graph[T]) ListNodesQueryBuilder(node T, relation string) ListNodesQueryBuilder[T] {
+	return ListNodesQueryBuilder[T]{node: node, graph: g}
+}
+
+type ListNodeEdgesQueryBuilder[T Node] struct {
+	node     T
+	relation string
+	graph    Graph[T]
+	cursor   string
+	filter   expression.ConditionBuilder
+	limit    int
+}
+
+func (g Graph[T]) ListNodeEdgesQueryBuilder(node T, relation string) ListNodeEdgesQueryBuilder[T] {
+	return ListNodeEdgesQueryBuilder[T]{node: node, relation: relation, graph: g}
+}
+
+func (b ListNodeEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+	b.graph.nodes.options.apply(opts)
+	b.graph.refs.options.apply(opts)
+
+	var (
+		definitions    = b.node.DynamoNodeRelationships()
+		def            = definitions[b.relation]
+		marshalOptions = b.graph.nodes.options.MarshalOptions
+		record         = Marshal(edge[T]{Node: b.node}, marshalOptions...)
+	)
+
+	// perform a reverse lookup for the edges forming the target
+	// relationship.
+	if b.node.DynamoNodeRefIsReverseLookup(b.relation) {
+		return b.graph.refs.Queries(ReverseLookupQuery{
+			SortKeyValue:      record.SK,
+			GSI1SortKeyPrefix: def.DynamoNodePrefix(),
+			Cursor:            b.cursor,
+			Limit:             b.limit,
+		})
 	}
-	return criteria
+
+	// perform a partition lookup for the edges forming the source
+	// relationship.
+	return b.graph.refs.Queries(LookupQuery{
+		PartitionKeyValue: record.PK,
+		SortKeyPrefix:     def.DynamoNodePrefix(),
+		Cursor:            b.cursor,
+		Limit:             b.limit,
+	})
 }
 
-type QueryPartition struct {
-	Cursor        string
-	Filter        filter.Expression
-	SortKeyPrefix string
-	ReverseLookup bool
-	pk            string
-	sk            string
+func (b *ListNodeEdgesQueryBuilder[T]) WithLimit(limit int) *ListNodeEdgesQueryBuilder[T] {
+	b.limit = limit
+	return b
 }
 
-func (q QueryPartition) indexName(o Options) string {
-	if q.ReverseLookup {
-		return o.ReverseLookupIndexName
-	}
-	return ""
+func (b *ListNodeEdgesQueryBuilder[T]) WithCursor(cursor string) *ListNodeEdgesQueryBuilder[T] {
+	b.cursor = cursor
+	return b
 }
 
-func (q QueryPartition) expression(builder expression.Builder) (expression.Expression, error) {
-	expr := sortKeyStartsWith(q.SortKeyPrefix)
-	if q.Filter != nil {
-		builder = builder.WithCondition(filter.Condition(q.Filter))
-	}
-	return builder.Build()
-}
-
-func (l QueryCollectionCriteria) indexName(o Options) string {
-	return o.CollectionQueryIndexName
-}
-
-func (l QueryCollectionCriteria) expression(builder expression.Builder) (expression.Expression, error) {
-	expr := itemTypeEquals(l.itemType)
-	if !(l.CreatedBefore.IsZero() || l.CreatedAfter.IsZero()) {
-		expr = expr.And(collectionSortKeyBetweenDates(l.CreatedAfter, l.CreatedBefore))
-	}
-	builder = builder.WithKeyCondition(expr)
-	if l.Filter != nil {
-		builder = builder.WithCondition(filter.Condition(l.Filter))
-	}
-	return builder.Build()
-}
-
-func sortKeyStartsWith(prefix string) expression.KeyConditionBuilder {
-	return expression.KeyBeginsWith(expression.Key(AttributeNameSK), prefix)
-}
-
-func reverseLookupSortKeyStartsWith(prefix string) expression.KeyConditionBuilder {
-	return expression.KeyBeginsWith(expression.Key(AttributeNameReverseLookupSortKey), prefix)
-}
-
-func itemTypeEquals(value string) expression.KeyConditionBuilder {
-	return expression.KeyEqual(expression.Key(AttributeNameItemType), expression.Value(value))
-}
-
-func collectionSortKeyBetweenDates(start, end time.Time) expression.KeyConditionBuilder {
-	return expression.KeyBetween(
-		expression.Key(AttributeNameCollectionSortKey),
-		expression.Value(start.Format(time.RFC3339Nano)),
-		expression.Value(end.Format(time.RFC3339Nano)))
+func (b *ListNodeEdgesQueryBuilder[T]) WithFilter(filter expression.ConditionBuilder) *ListNodeEdgesQueryBuilder[T] {
+	b.filter = filter
+	return b
 }
