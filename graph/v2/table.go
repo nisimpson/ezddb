@@ -172,11 +172,6 @@ func (t Table[T]) Deletes(data T, opts ...func(*Options)) operation.DeleteOperat
 	}
 }
 
-type QueryCriteria interface {
-	indexName(Options) string
-	expression(builder expression.Builder) (expression.Expression, error)
-}
-
 type QueryStrategy interface {
 	modify(op operation.QueryOperation, opts Options) operation.QueryOperation
 }
