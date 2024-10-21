@@ -256,7 +256,7 @@ func (p Paginator) GetStartKeyToken(ctx context.Context, startKey map[string]typ
 	return id, err
 }
 
-func (t Table[T]) Puts(data T, opts ...func(*Options)) operation.PutOperation {
+func (t Table[T]) Puts(data T, opts ...func(*Options)) operation.Put {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	item, err := t.options.Marshaler.MarshalMap(record)
@@ -272,7 +272,7 @@ func (t Table[T]) Puts(data T, opts ...func(*Options)) operation.PutOperation {
 	}
 }
 
-func (t Table[T]) Gets(data T, opts ...func(*Options)) operation.GetOperation {
+func (t Table[T]) Gets(data T, opts ...func(*Options)) operation.Get {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	key := record.Key()
@@ -284,7 +284,7 @@ func (t Table[T]) Gets(data T, opts ...func(*Options)) operation.GetOperation {
 	}
 }
 
-func (t Table[T]) Deletes(data T, opts ...func(*Options)) operation.DeleteOperation {
+func (t Table[T]) Deletes(data T, opts ...func(*Options)) operation.Delete {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	key := record.Key()
@@ -297,10 +297,10 @@ func (t Table[T]) Deletes(data T, opts ...func(*Options)) operation.DeleteOperat
 }
 
 type UpdateStrategy interface {
-	modify(op operation.UpdateOperation, opts Options) operation.UpdateOperation
+	modify(op operation.UpdateItem, opts Options) operation.UpdateItem
 }
 
-func (t Table[T]) Updates(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateOperation {
+func (t Table[T]) Updates(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
 	t.options.apply(opts)
 	record := Marshal(id, t.options.MarshalOptions...)
 
@@ -320,7 +320,7 @@ type UpdateDataAttributes struct {
 	Updates    map[string]UpdateAttributeFunc
 }
 
-func (u UpdateDataAttributes) modify(op operation.UpdateOperation, opts Options) operation.UpdateOperation {
+func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts Options) operation.UpdateItem {
 	var (
 		builder = expression.NewBuilder()
 		update  = updateTimestamp(opts.Tick().UTC())
@@ -339,10 +339,10 @@ func (u UpdateDataAttributes) modify(op operation.UpdateOperation, opts Options)
 }
 
 type QueryStrategy interface {
-	modify(op operation.QueryOperation, opts Options) operation.QueryOperation
+	modify(op operation.Query, opts Options) operation.Query
 }
 
-func (t Table[T]) Queries(strategy QueryStrategy, opts ...func(*Options)) operation.QueryOperation {
+func (t Table[T]) Queries(strategy QueryStrategy, opts ...func(*Options)) operation.Query {
 	t.options.apply(opts)
 	return strategy.modify(func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		return &dynamodb.QueryInput{
@@ -367,7 +367,7 @@ type ReverseLookupQuery struct {
 	Limit             int
 }
 
-func (q ReverseLookupQuery) modify(op operation.QueryOperation, opts Options) operation.QueryOperation {
+func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 	keyCondition := sortKeyEquals(q.SortKeyValue)
 	if q.GSI1SortKeyPrefix != "" {
@@ -401,7 +401,7 @@ type CollectionQuery struct {
 	Limit            int
 }
 
-func (q CollectionQuery) modify(op operation.QueryOperation, opts Options) operation.QueryOperation {
+func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 
 	// we consider the zero values for the lower and upper date bounds to be
@@ -443,7 +443,7 @@ type LookupQuery struct {
 	Limit             int
 }
 
-func (q LookupQuery) modify(op operation.QueryOperation, opts Options) operation.QueryOperation {
+func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 	keyCondition := partitionKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {

@@ -7,11 +7,11 @@ import (
 	"github.com/nisimpson/ezddb"
 )
 
-// ScanOperation functions generate dynamodb scan input data given some context.
-type ScanOperation func(context.Context) (*dynamodb.ScanInput, error)
+// Scan functions generate dynamodb scan input data given some context.
+type Scan func(context.Context) (*dynamodb.ScanInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (q ScanOperation) Invoke(ctx context.Context) (*dynamodb.ScanInput, error) {
+func (q Scan) Invoke(ctx context.Context) (*dynamodb.ScanInput, error) {
 	return q(ctx)
 }
 
@@ -23,7 +23,7 @@ type ScanModifier interface {
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (p ScanOperation) Modify(modifiers ...ScanModifier) ScanOperation {
+func (p Scan) Modify(modifiers ...ScanModifier) Scan {
 	mapper := func(ctx context.Context, input *dynamodb.ScanInput, mod ScanModifier) error {
 		return mod.ModifyScanInput(ctx, input)
 	}
@@ -33,7 +33,7 @@ func (p ScanOperation) Modify(modifiers ...ScanModifier) ScanOperation {
 }
 
 // Execute executes the Operation, returning the API result.
-func (p ScanOperation) Execute(ctx context.Context,
+func (p Scan) Execute(ctx context.Context,
 	Scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ type PageScanCallback = func(context.Context, *dynamodb.ScanOutput) bool
 // WithPagination creates a new Operation that exhastively retrieves items from the
 // database using the initial operation. Use the callback to access data from each
 // response.
-func (p ScanOperation) WithPagination(callback PageScanCallback) ScanExecutor {
+func (p Scan) WithPagination(callback PageScanCallback) ScanExecutor {
 	return func(ctx context.Context, scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {

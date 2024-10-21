@@ -38,7 +38,7 @@ func (p updater) fails() updater {
 	return p
 }
 
-func (t table) updateCustomer(c customer) operation.UpdateOperation {
+func (t table) updateCustomer(c customer) operation.UpdateItem {
 	return func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -62,7 +62,7 @@ func (t table) updateCustomer(c customer) operation.UpdateOperation {
 func TestUpdateInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.UpdateOperation
+		Operation operation.UpdateItem
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
@@ -111,7 +111,7 @@ func TestUpdateExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		updater   ezddb.Updater
-		Operation operation.UpdateOperation
+		Operation operation.UpdateItem
 		wantErr   bool
 	}
 
@@ -154,20 +154,20 @@ func TestUpdateExecute(t *testing.T) {
 func TestUpdateModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.UpdateOperation
-		modifier  operation.UpdateModifier
+		Operation operation.UpdateItem
+		modifier  operation.UpdateItemModifier
 		wantInput dynamodb.UpdateItemInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	modifier := operation.UpdateItemModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 		input.Key["modified"] = &types.AttributeValueMemberBOOL{Value: true}
 		return nil
 	})
 
-	modifierFails := operation.UpdateModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
+	modifierFails := operation.UpdateItemModifierFunc(func(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 		return ErrMock
 	})
 
@@ -222,7 +222,7 @@ func TestUpdateModify(t *testing.T) {
 func TestUpdateModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		Operation     operation.UpdateOperation
+		Operation     operation.UpdateItem
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

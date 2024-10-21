@@ -15,11 +15,11 @@ const (
 	MaxBatchReadSize = 100
 )
 
-// BatchGetOperation functions generate dynamodb put input data given some context.
-type BatchGetOperation func(context.Context) (*dynamodb.BatchGetItemInput, error)
+// BatchGetItem functions generate dynamodb put input data given some context.
+type BatchGetItem func(context.Context) (*dynamodb.BatchGetItemInput, error)
 
-// NewBatchGetOperation creates a new batch get Operation instance.
-func NewBatchGetOperation() BatchGetOperation {
+// newBatchGetOperation creates a new batch get Operation instance.
+func newBatchGetOperation() BatchGetItem {
 	return func(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 		return &dynamodb.BatchGetItemInput{
 			RequestItems: make(map[string]types.KeysAndAttributes),
@@ -27,13 +27,13 @@ func NewBatchGetOperation() BatchGetOperation {
 	}
 }
 
-type BatchGetCollection []BatchGetModifier
+type BatchGetItemCollection []BatchGetItemModifier
 
-func (c BatchGetCollection) Join() []BatchGetOperation {
+func (c BatchGetItemCollection) Join() []BatchGetItem {
 	batches := collection.Chunk(c, MaxBatchReadSize)
-	ops := make([]BatchGetOperation, 0, len(batches))
+	ops := make([]BatchGetItem, 0, len(batches))
 	for _, batch := range batches {
-		opt := NewBatchGetOperation()
+		opt := newBatchGetOperation()
 		for _, mod := range batch {
 			opt = opt.Modify(mod)
 		}
@@ -42,7 +42,11 @@ func (c BatchGetCollection) Join() []BatchGetOperation {
 	return ops
 }
 
-func (BatchGetCollection) readOutput(v ezddb.ItemVisitor, outs []*dynamodb.BatchGetItemOutput) error {
+func (c BatchGetItemCollection) Modify(modifiers ...BatchGetItemModifier) BatchGetItemCollection {
+	return append(c, modifiers...)
+}
+
+func (BatchGetItemCollection) readOutput(v ezddb.ItemVisitor, outs []*dynamodb.BatchGetItemOutput) error {
 	for _, o := range outs {
 		if o == nil {
 			continue
@@ -58,7 +62,7 @@ func (BatchGetCollection) readOutput(v ezddb.ItemVisitor, outs []*dynamodb.Batch
 	return nil
 }
 
-func (c BatchGetCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGetItemInput, error) {
+func (c BatchGetItemCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGetItemInput, error) {
 	ops := c.Join()
 	inputs := make([]*dynamodb.BatchGetItemInput, 0, len(ops))
 	for _, op := range ops {
@@ -71,7 +75,7 @@ func (c BatchGetCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGetIte
 	return inputs, nil
 }
 
-func (c BatchGetCollection) Execute(ctx context.Context,
+func (c BatchGetItemCollection) Execute(ctx context.Context,
 	getter ezddb.BatchGetter, visitor ezddb.ItemVisitor, options ...func(*dynamodb.Options)) error {
 	ops := c.Join()
 	outs := make([]*dynamodb.BatchGetItemOutput, 0, len(ops))
@@ -88,7 +92,7 @@ func (c BatchGetCollection) Execute(ctx context.Context,
 	return errors.Join(errs...)
 }
 
-func (c BatchGetCollection) ExecuteConcurrently(ctx context.Context,
+func (c BatchGetItemCollection) ExecuteConcurrently(ctx context.Context,
 	getter ezddb.BatchGetter, visitor ezddb.ItemVisitor, options ...func(*dynamodb.Options)) error {
 	ops := c.Join()
 	outs := make([]*dynamodb.BatchGetItemOutput, len(ops))
@@ -96,7 +100,7 @@ func (c BatchGetCollection) ExecuteConcurrently(ctx context.Context,
 	wg := &sync.WaitGroup{}
 	for i, op := range ops {
 		wg.Add(1)
-		go func(i int, op BatchGetOperation) {
+		go func(i int, op BatchGetItem) {
 			defer wg.Done()
 			out, err := op.Execute(ctx, getter, options...)
 			if err != nil {
@@ -112,20 +116,20 @@ func (c BatchGetCollection) ExecuteConcurrently(ctx context.Context,
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (g BatchGetOperation) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
+func (g BatchGetItem) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 	return g(ctx)
 }
 
-// BatchGetModifier makes modifications to the input before the Operation is executed.
-type BatchGetModifier interface {
+// BatchGetItemModifier makes modifications to the input before the Operation is executed.
+type BatchGetItemModifier interface {
 	// ModifyBatchGetItemInput is invoked when this modifier is applied to the provided input.
 	ModifyBatchGetItemInput(context.Context, *dynamodb.BatchGetItemInput) error
 }
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (b BatchGetOperation) Modify(modifiers ...BatchGetModifier) BatchGetOperation {
-	mapper := func(ctx context.Context, input *dynamodb.BatchGetItemInput, mod BatchGetModifier) error {
+func (b BatchGetItem) Modify(modifiers ...BatchGetItemModifier) BatchGetItem {
+	mapper := func(ctx context.Context, input *dynamodb.BatchGetItemInput, mod BatchGetItemModifier) error {
 		return mod.ModifyBatchGetItemInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
@@ -134,7 +138,7 @@ func (b BatchGetOperation) Modify(modifiers ...BatchGetModifier) BatchGetOperati
 }
 
 // Execute executes the Operation, returning the API result.
-func (b BatchGetOperation) Execute(ctx context.Context,
+func (b BatchGetItem) Execute(ctx context.Context,
 	getter ezddb.BatchGetter, options ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err

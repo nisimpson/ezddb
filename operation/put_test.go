@@ -39,7 +39,7 @@ func (p putter) fails() putter {
 	return p
 }
 
-func (t table) putCustomer(c customer) operation.PutOperation {
+func (t table) putCustomer(c customer) operation.Put {
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -55,7 +55,7 @@ func (t table) putCustomer(c customer) operation.PutOperation {
 func TestPutInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.PutOperation
+		Operation operation.Put
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
 	}
@@ -98,7 +98,7 @@ func TestPutExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		putter    ezddb.Putter
-		Operation operation.PutOperation
+		Operation operation.Put
 		wantErr   bool
 	}
 
@@ -141,7 +141,7 @@ func TestPutExecute(t *testing.T) {
 func TestPutModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.PutOperation
+		Operation operation.Put
 		modifier  operation.PutModifier
 		wantInput dynamodb.PutItemInput
 		wantErr   bool
@@ -203,7 +203,7 @@ func TestPutModify(t *testing.T) {
 func TestPutModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		Operation  operation.PutOperation
+		Operation  operation.Put
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -290,7 +290,7 @@ func TestPutModifyBatchWriteItemInput(t *testing.T) {
 func TestPutModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		Operation     operation.PutOperation
+		Operation     operation.Put
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

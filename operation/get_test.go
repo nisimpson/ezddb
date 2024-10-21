@@ -38,7 +38,7 @@ func (p getter) fails() getter {
 	return p
 }
 
-func (t table) getCustomer(id string) operation.GetOperation {
+func (t table) getCustomer(id string) operation.Get {
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -55,7 +55,7 @@ func (t table) getCustomer(id string) operation.GetOperation {
 func TestGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.GetOperation
+		Operation operation.Get
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
 	}
@@ -97,7 +97,7 @@ func TestGetExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		getter    ezddb.Getter
-		Operation operation.GetOperation
+		Operation operation.Get
 		wantErr   bool
 	}
 
@@ -140,7 +140,7 @@ func TestGetExecute(t *testing.T) {
 func TestGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.GetOperation
+		Operation operation.Get
 		modifier  operation.GetModifier
 		wantInput dynamodb.GetItemInput
 		wantErr   bool
@@ -201,7 +201,7 @@ func TestGetModify(t *testing.T) {
 func TestGetModifyBatchGetItemInput(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.GetOperation
+		Operation operation.Get
 		batchget  dynamodb.BatchGetItemInput
 		wantInput dynamodb.BatchGetItemInput
 		wantErr   bool
@@ -282,7 +282,7 @@ func TestGetModifyBatchGetItemInput(t *testing.T) {
 func TestGetModifyTransactGetItemInput(t *testing.T) {
 	type testcase struct {
 		name        string
-		Operation   operation.GetOperation
+		Operation   operation.Get
 		transactGet dynamodb.TransactGetItemsInput
 		wantInput   dynamodb.TransactGetItemsInput
 		wantErr     bool

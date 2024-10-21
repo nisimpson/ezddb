@@ -15,11 +15,11 @@ const (
 	MaxBatchWriteSize = 25
 )
 
-// BatchWriteOperation functions generate dynamodb put input data given some context.
-type BatchWriteOperation func(context.Context) (*dynamodb.BatchWriteItemInput, error)
+// BatchWriteItem functions generate dynamodb put input data given some context.
+type BatchWriteItem func(context.Context) (*dynamodb.BatchWriteItemInput, error)
 
 // NewBatchWriteOperation creates a new batch write Operation instance.
-func newBatchWriteOperation() BatchWriteOperation {
+func newBatchWriteOperation() BatchWriteItem {
 	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 		return &dynamodb.BatchWriteItemInput{
 			RequestItems: make(map[string][]types.WriteRequest),
@@ -27,11 +27,11 @@ func newBatchWriteOperation() BatchWriteOperation {
 	}
 }
 
-type BatchWriteCollection []BatchWriteModifier
+type BatchWriteItemCollection []BatchWriteItemModifier
 
-func (c BatchWriteCollection) Join() []BatchWriteOperation {
+func (c BatchWriteItemCollection) Join() []BatchWriteItem {
 	batches := collection.Chunk(c, MaxBatchWriteSize)
-	ops := make([]BatchWriteOperation, 0, len(batches))
+	ops := make([]BatchWriteItem, 0, len(batches))
 	for _, batch := range batches {
 		op := newBatchWriteOperation()
 		op.Modify(batch...)
@@ -40,7 +40,7 @@ func (c BatchWriteCollection) Join() []BatchWriteOperation {
 	return ops
 }
 
-func (c BatchWriteCollection) Execute(ctx context.Context,
+func (c BatchWriteItemCollection) Execute(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	ops := c.Join()
 	output := make([]*dynamodb.BatchWriteItemOutput, len(ops))
@@ -55,7 +55,11 @@ func (c BatchWriteCollection) Execute(ctx context.Context,
 	return c.mergeOutput(output), errors.Join(errs...)
 }
 
-func (c BatchWriteCollection) ExecuteConcurrently(ctx context.Context,
+func (c BatchWriteItemCollection) Modify(modifiers ...BatchWriteItemModifier) BatchWriteItemCollection {
+	return append(c, modifiers...)
+}
+
+func (c BatchWriteItemCollection) ExecuteConcurrently(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	ops := c.Join()
 	wg := &sync.WaitGroup{}
@@ -63,7 +67,7 @@ func (c BatchWriteCollection) ExecuteConcurrently(ctx context.Context,
 	errs := make([]error, len(ops))
 	for idx, op := range ops {
 		wg.Add(1)
-		go func(idx int, op BatchWriteOperation) {
+		go func(idx int, op BatchWriteItem) {
 			defer wg.Done()
 			if out, err := op.Execute(ctx, writer, options...); err != nil {
 				errs[idx] = err
@@ -76,7 +80,7 @@ func (c BatchWriteCollection) ExecuteConcurrently(ctx context.Context,
 	return c.mergeOutput(output), errors.Join(errs...)
 }
 
-func (BatchWriteCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutput) *dynamodb.BatchWriteItemOutput {
+func (BatchWriteItemCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutput) *dynamodb.BatchWriteItemOutput {
 	output := &dynamodb.BatchWriteItemOutput{
 		ItemCollectionMetrics: make(map[string][]types.ItemCollectionMetrics),
 		UnprocessedItems:      make(map[string][]types.WriteRequest),
@@ -94,20 +98,20 @@ func (BatchWriteCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutput) 
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (g BatchWriteOperation) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
+func (g BatchWriteItem) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 	return g(ctx)
 }
 
-// BatchWriteModifier makes modifications to the input before the Operation is executed.
-type BatchWriteModifier interface {
+// BatchWriteItemModifier makes modifications to the input before the Operation is executed.
+type BatchWriteItemModifier interface {
 	// ModifyBatchWriteItemInput is invoked when this modifier is applied to the provided input.
 	ModifyBatchWriteItemInput(context.Context, *dynamodb.BatchWriteItemInput) error
 }
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (b BatchWriteOperation) Modify(modifiers ...BatchWriteModifier) BatchWriteOperation {
-	mapper := func(ctx context.Context, input *dynamodb.BatchWriteItemInput, mod BatchWriteModifier) error {
+func (b BatchWriteItem) Modify(modifiers ...BatchWriteItemModifier) BatchWriteItem {
+	mapper := func(ctx context.Context, input *dynamodb.BatchWriteItemInput, mod BatchWriteItemModifier) error {
 		return mod.ModifyBatchWriteItemInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
@@ -116,7 +120,7 @@ func (b BatchWriteOperation) Modify(modifiers ...BatchWriteModifier) BatchWriteO
 }
 
 // Execute executes the Operation, returning the API result.
-func (b BatchWriteOperation) Execute(ctx context.Context,
+func (b BatchWriteItem) Execute(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {
 		return nil, err

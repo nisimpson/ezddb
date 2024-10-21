@@ -103,23 +103,23 @@ func (g Graph[T]) refsOf(node T) []nodeRef {
 	return items
 }
 
-func (g Graph[T]) PutsNode(node T, opts ...func(*Options)) operation.PutOperation {
+func (g Graph[T]) PutsNode(node T, opts ...func(*Options)) operation.Put {
 	return g.nodes.Puts(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) PutsEdges(node T, opts ...func(*Options)) operation.BatchWriteCollection {
-	batches := make(operation.BatchWriteCollection, 0)
+func (g Graph[T]) PutsEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
+	batches := make(operation.BatchWriteItemCollection, 0)
 	for _, ref := range g.refsOf(node) {
 		batches = append(batches, g.refs.Puts(ref))
 	}
 	return batches
 }
 
-func (g Graph[T]) GetsNode(node T, opts ...func(*Options)) operation.GetOperation {
+func (g Graph[T]) GetsNode(node T, opts ...func(*Options)) operation.Get {
 	return g.nodes.Gets(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) UpdatesNode(node T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateOperation {
+func (g Graph[T]) UpdatesNode(node T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
 	return g.nodes.Updates(edge[T]{Node: node}, strategy, opts...)
 }
 
@@ -134,16 +134,16 @@ func (a NodeAttribute) ExpressionName() expression.NameBuilder {
 	return expression.Name(name)
 }
 
-func (g Graph[T]) DeletesNode(node T, opts ...func(*Options)) operation.DeleteOperation {
+func (g Graph[T]) DeletesNode(node T, opts ...func(*Options)) operation.Delete {
 	return g.nodes.Deletes(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) operation.BatchWriteCollection {
+func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) operation.BatchWriteItemCollection {
 	g.refs.options.apply(opts)
 	var (
 		reverse    = node.DynamoNodeRefIsReverseLookup(relation)
 		refs       = node.DynamoNodeRef(relation)
-		collection = make(operation.BatchWriteCollection, 0, len(refs))
+		collection = make(operation.BatchWriteItemCollection, 0, len(refs))
 	)
 
 	for _, ref := range refs {
@@ -153,10 +153,10 @@ func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) 
 	return collection
 }
 
-func (g Graph[T]) DeletesAllEdges(node T, opts ...func(*Options)) operation.BatchWriteCollection {
+func (g Graph[T]) DeletesAllEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
 	var (
 		definitions = node.DynamoNodeRelationships()
-		collection  = make(operation.BatchWriteCollection, 0)
+		collection  = make(operation.BatchWriteItemCollection, 0)
 	)
 
 	for def := range definitions {
@@ -232,7 +232,7 @@ type ListNodesQueryBuilder[T Node] struct {
 	limit  int
 }
 
-func (b ListNodesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+func (b ListNodesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.Query {
 	return b.graph.nodes.Queries(CollectionQuery{
 		ItemType: b.node.DynamoNodeType(),
 		Cursor:   b.cursor,
@@ -273,7 +273,7 @@ func (g Graph[T]) ListEdgesQueryBuilder(node T, relation string) ListEdgesQueryB
 	return ListEdgesQueryBuilder[T]{node: node, relation: relation, graph: g}
 }
 
-func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.QueryOperation {
+func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.Query {
 	b.graph.nodes.options.apply(opts)
 	b.graph.refs.options.apply(opts)
 

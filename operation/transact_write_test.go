@@ -38,10 +38,10 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) operation.TransactionWriteOperation {
-	transaction := operation.NewTransactionWriteOperation()
+func (t table) updateCustomers(customers ...customer) operation.TransactWriteItemsCollection {
+	transaction := operation.TransactWriteItemsCollection{}
 	for _, c := range customers {
-		transaction = transaction.Modify(t.updateCustomer(c))
+		transaction = append(transaction, t.updateCustomer(c))
 	}
 	return transaction
 }
@@ -49,8 +49,8 @@ func (t table) updateCustomers(customers ...customer) operation.TransactionWrite
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactionWriteOperation
-		wantInput dynamodb.TransactWriteItemsInput
+		Operation operation.TransactWriteItemsCollection
+		wantInput []*dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
 
@@ -63,7 +63,7 @@ func TestTransactWriteInvoke(t *testing.T) {
 				customer{ID: "123", Name: "John Doe"},
 				customer{ID: "345", Name: "Jane Doe"},
 			),
-			wantInput: dynamodb.TransactWriteItemsInput{
+			wantInput: []*dynamodb.TransactWriteItemsInput{{
 				TransactItems: []types.TransactWriteItem{
 					{
 						Update: &types.Update{
@@ -96,7 +96,7 @@ func TestTransactWriteInvoke(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 		},
 		{
 			name:      "returns error if Operation fails",
@@ -113,7 +113,7 @@ func TestTransactWriteInvoke(t *testing.T) {
 			if !assert.NoError(t, err) {
 				return
 			}
-			assert.EqualValues(t, &tc.wantInput, input)
+			assert.ElementsMatch(t, tc.wantInput, input)
 		})
 	}
 }
@@ -122,7 +122,7 @@ func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactWriter ezddb.TransactionWriter
-		Operation      operation.TransactionWriteOperation
+		Operation      operation.TransactWriteItemsCollection
 		wantErr        bool
 	}
 
@@ -165,20 +165,20 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactionWriteOperation
-		modifier  operation.TransactionWriteModifier
-		wantInput dynamodb.TransactWriteItemsInput
+		Operation operation.TransactWriteItemsCollection
+		modifier  operation.TransactionWriteItemsModifier
+		wantInput []*dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifier := operation.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		input.ClientRequestToken = aws.String("token")
 		return nil
 	})
 
-	modifierFails := operation.TransactionWriteModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifierFails := operation.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		return ErrMock
 	})
 
@@ -190,7 +190,7 @@ func TestTransactWriteModify(t *testing.T) {
 				customer{ID: "345", Name: "Jane Doe"},
 			),
 			modifier: modifier,
-			wantInput: dynamodb.TransactWriteItemsInput{
+			wantInput: []*dynamodb.TransactWriteItemsInput{{
 				ClientRequestToken: aws.String("token"),
 				TransactItems: []types.TransactWriteItem{
 					{
@@ -224,7 +224,7 @@ func TestTransactWriteModify(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 			wantErr: false,
 		},
 		{
@@ -241,7 +241,8 @@ func TestTransactWriteModify(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
+			operation := append(tc.Operation, tc.modifier)
+			input, err := operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -249,7 +250,7 @@ func TestTransactWriteModify(t *testing.T) {
 			if !assert.NoError(t, err) {
 				return
 			}
-			assert.EqualValues(t, &tc.wantInput, input)
+			assert.ElementsMatch(t, tc.wantInput, input)
 		})
 	}
 }

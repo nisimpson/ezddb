@@ -38,7 +38,7 @@ func (p deleter) fails() deleter {
 	return p
 }
 
-func (t table) deleteCustomer(id string) operation.DeleteOperation {
+func (t table) deleteCustomer(id string) operation.Delete {
 	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -55,7 +55,7 @@ func (t table) deleteCustomer(id string) operation.DeleteOperation {
 func TestDeleteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.DeleteOperation
+		Operation operation.Delete
 		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
 	}
@@ -97,7 +97,7 @@ func TestDeleteExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		deleter   ezddb.Deleter
-		Operation operation.DeleteOperation
+		Operation operation.Delete
 		wantErr   bool
 	}
 
@@ -140,7 +140,7 @@ func TestDeleteExecute(t *testing.T) {
 func TestDeleteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.DeleteOperation
+		Operation operation.Delete
 		modifier  operation.DeleteModifier
 		wantInput dynamodb.DeleteItemInput
 		wantErr   bool
@@ -201,7 +201,7 @@ func TestDeleteModify(t *testing.T) {
 func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name       string
-		Operation  operation.DeleteOperation
+		Operation  operation.Delete
 		batchwrite dynamodb.BatchWriteItemInput
 		wantInput  dynamodb.BatchWriteItemInput
 		wantErr    bool
@@ -286,7 +286,7 @@ func TestDeleteModifyBatchWriteItemInput(t *testing.T) {
 func TestDeleteModifyTransactWriteItemInput(t *testing.T) {
 	type testcase struct {
 		name          string
-		Operation     operation.DeleteOperation
+		Operation     operation.Delete
 		transactWrite dynamodb.TransactWriteItemsInput
 		wantInput     dynamodb.TransactWriteItemsInput
 		wantErr       bool

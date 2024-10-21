@@ -6,45 +6,64 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/internal/collection"
 )
 
 const (
+	// The maximum number of transactions in a single [TransactWriteItems] request.
 	MaxTransactionGetSize = 100
 )
 
-// TransactionWriteOperation functions generate dynamodb input data given some context.
-type TransactionWriteOperation func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
+// TransactWriteItems functions generate dynamodb input data given some context.
+type TransactWriteItems func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
 
-// NewTransactionWriteOperation returns a new transaction write Operation instance.
-func NewTransactionWriteOperation() TransactionWriteOperation {
+// newTransactionWriteOperation returns a new transaction write Operation instance.
+func newTransactionWriteOperation() TransactWriteItems {
 	return func(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
 		return &dynamodb.TransactWriteItemsInput{}, nil
 	}
 }
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (t TransactionWriteOperation) Invoke(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
+func (t TransactWriteItems) Invoke(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
 	return t(ctx)
 }
 
-type TransactionWriteCollection []TransactionWriteModifier
+// TransactWriteItemsCollection is a collection of TransactionWriteItems modifiers
+// that can be chunked into multiple [TransactWriteItems] operations if the total number of
+// transctions execeeds [MaxTransactionGetSize].
+type TransactWriteItemsCollection []TransactionWriteItemsModifier
 
-func (c TransactionWriteCollection) Join() []TransactionWriteOperation {
+// Join creates a new TransactionWriteItemsCollection by chunking the original
+// collection into batches of size [MaxTransactionGetSize].
+func (c TransactWriteItemsCollection) Join() []TransactWriteItems {
 	batches := collection.Chunk(c, MaxTransactionGetSize)
-	ops := make([]TransactionWriteOperation, 0, len(batches))
+	ops := make([]TransactWriteItems, 0, len(batches))
 	for _, batch := range batches {
-		op := NewTransactionWriteOperation()
-		op.Modify(batch...)
-		ops = append(ops, op)
+		op := newTransactionWriteOperation()
+		ops = append(ops, op.Modify(batch...))
 	}
 	return ops
 }
 
-func (c TransactionWriteCollection) Execute(ctx context.Context,
-	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+// Invoke joins, chunks, and generates multiple [dynamodb.TransactWriteItemsInput] requests.
+func (c TransactWriteItemsCollection) Invoke(ctx context.Context) ([]*dynamodb.TransactWriteItemsInput, error) {
+	ops := c.Join()
+	output := make([]*dynamodb.TransactWriteItemsInput, len(ops))
+	for idx, op := range ops {
+		var err error
+		if output[idx], err = op.Invoke(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return output, nil
+}
+
+// Execute executes the [TransactWriteItems] operations sequentially,
+// merging the output and errors into a single output.
+func (c TransactWriteItemsCollection) Execute(ctx context.Context,
+	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactWriteItemsOutput, error) {
 	ops := c.Join()
 	output := make([]*dynamodb.TransactWriteItemsOutput, len(ops))
 	errs := make([]error, len(ops))
@@ -55,18 +74,20 @@ func (c TransactionWriteCollection) Execute(ctx context.Context,
 			output[idx] = out
 		}
 	}
-	return c.mergeOutput(output), errors.Join(errs...)
+	return output, errors.Join(errs...)
 }
 
-func (c TransactionWriteCollection) ExecuteConcurrently(ctx context.Context,
-	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
+// ExecuteConcurrently executes the [TransactWriteItems] operations concurrently,
+// merging the output and errors into a single output.
+func (c TransactWriteItemsCollection) ExecuteConcurrently(ctx context.Context,
+	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactWriteItemsOutput, error) {
 	ops := c.Join()
 	wg := &sync.WaitGroup{}
 	output := make([]*dynamodb.TransactWriteItemsOutput, len(ops))
 	errs := make([]error, len(ops))
 	for idx, op := range ops {
 		wg.Add(1)
-		go func(idx int, op TransactionWriteOperation) {
+		go func(idx int, op TransactWriteItems) {
 			defer wg.Done()
 			if out, err := op.Execute(ctx, writer, options...); err != nil {
 				errs[idx] = err
@@ -76,39 +97,26 @@ func (c TransactionWriteCollection) ExecuteConcurrently(ctx context.Context,
 		}(idx, op)
 	}
 	wg.Wait()
-	return c.mergeOutput(output), errors.Join(errs...)
+	return output, errors.Join(errs...)
 }
 
-func (TransactionWriteCollection) mergeOutput(items []*dynamodb.TransactWriteItemsOutput) *dynamodb.TransactWriteItemsOutput {
-	output := &dynamodb.TransactWriteItemsOutput{
-		ItemCollectionMetrics: make(map[string][]types.ItemCollectionMetrics),
-	}
-	for _, item := range items {
-		output.ConsumedCapacity = append(output.ConsumedCapacity, item.ConsumedCapacity...)
-		for k, v := range item.ItemCollectionMetrics {
-			output.ItemCollectionMetrics[k] = append(output.ItemCollectionMetrics[k], v...)
-		}
-	}
-	return output
-}
-
-// TransactionWriteModifier makes modifications to the input before the Operation is executed.
-type TransactionWriteModifier interface {
+// TransactionWriteItemsModifier makes modifications to the input before the Operation is executed.
+type TransactionWriteItemsModifier interface {
 	// ModifyTransactWriteItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactWriteItemsInput(context.Context, *dynamodb.TransactWriteItemsInput) error
 }
 
-// TransactionWriteModifierFunc is a function that implements TransactionWriteModifier.
-type TransactionWriteModifierFunc modifier[dynamodb.TransactWriteItemsInput]
+// TransactionWriteItemsModifierFunc is a function that implements TransactionWriteModifier.
+type TransactionWriteItemsModifierFunc modifier[dynamodb.TransactWriteItemsInput]
 
-func (t TransactionWriteModifierFunc) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+func (t TransactionWriteItemsModifierFunc) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	return t(ctx, input)
 }
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (t TransactionWriteOperation) Modify(modifiers ...TransactionWriteModifier) TransactionWriteOperation {
-	mapper := func(ctx context.Context, input *dynamodb.TransactWriteItemsInput, mod TransactionWriteModifier) error {
+func (t TransactWriteItems) Modify(modifiers ...TransactionWriteItemsModifier) TransactWriteItems {
+	mapper := func(ctx context.Context, input *dynamodb.TransactWriteItemsInput, mod TransactionWriteItemsModifier) error {
 		return mod.ModifyTransactWriteItemsInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
@@ -117,7 +125,7 @@ func (t TransactionWriteOperation) Modify(modifiers ...TransactionWriteModifier)
 }
 
 // Execute executes the Operation, returning the API result.
-func (t TransactionWriteOperation) Execute(ctx context.Context,
+func (t TransactWriteItems) Execute(ctx context.Context,
 	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {
 		return nil, err

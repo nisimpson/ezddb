@@ -38,7 +38,7 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) operation.QueryOperation {
+func (t table) queryCustomerName(name string) operation.Query {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -59,7 +59,7 @@ func (t table) queryCustomerName(name string) operation.QueryOperation {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.QueryOperation
+		Operation operation.Query
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -105,7 +105,7 @@ func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		querier   ezddb.Querier
-		Operation operation.QueryOperation
+		Operation operation.Query
 		wantErr   bool
 	}
 
@@ -148,7 +148,7 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.QueryOperation
+		Operation operation.Query
 		modifier  operation.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool

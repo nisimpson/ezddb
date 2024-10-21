@@ -37,19 +37,19 @@ func (p transactGetter) fails() transactGetter {
 	return p
 }
 
-func (t table) getCustomers(customers ...string) operation.TransactionGetOperation {
-	transaction := operation.NewTransactionGetOperation()
+func (t table) getCustomers(customers ...string) operation.TransactGetItemsCollection {
+	transactions := operation.TransactGetItemsCollection{}
 	for _, c := range customers {
-		transaction = transaction.Modify(t.getCustomer(c))
+		transactions = append(transactions, t.getCustomer(c))
 	}
-	return transaction
+	return transactions
 }
 
 func TestTransactionGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactionGetOperation
-		wantInput dynamodb.TransactGetItemsInput
+		Operation operation.TransactGetItemsCollection
+		wantInput []*dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
 
@@ -59,21 +59,23 @@ func TestTransactionGetInvoke(t *testing.T) {
 		{
 			name:      "returns the input successfully",
 			Operation: table.getCustomers("123", "345"),
-			wantInput: dynamodb.TransactGetItemsInput{
-				TransactItems: []types.TransactGetItem{
-					{
-						Get: &types.Get{
-							TableName: aws.String("customer-table"),
-							Key: map[string]types.AttributeValue{
-								"id": &types.AttributeValueMemberS{Value: "123"},
+			wantInput: []*dynamodb.TransactGetItemsInput{
+				{
+					TransactItems: []types.TransactGetItem{
+						{
+							Get: &types.Get{
+								TableName: aws.String("customer-table"),
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "123"},
+								},
 							},
 						},
-					},
-					{
-						Get: &types.Get{
-							TableName: aws.String("customer-table"),
-							Key: map[string]types.AttributeValue{
-								"id": &types.AttributeValueMemberS{Value: "345"},
+						{
+							Get: &types.Get{
+								TableName: aws.String("customer-table"),
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "345"},
+								},
 							},
 						},
 					},
@@ -95,7 +97,7 @@ func TestTransactionGetInvoke(t *testing.T) {
 			if !assert.NoError(t, err) {
 				return
 			}
-			assert.EqualValues(t, &tc.wantInput, input)
+			assert.ElementsMatch(t, tc.wantInput, input)
 		})
 	}
 }
@@ -104,7 +106,7 @@ func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactGetter operation.TransactionGetter
-		Operation      operation.TransactionGetOperation
+		Operation      operation.TransactGetItemsCollection
 		wantErr        bool
 	}
 
@@ -147,20 +149,20 @@ func TestTransactionGetExecute(t *testing.T) {
 func TestTransactionGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactionGetOperation
-		modifier  operation.TransactionGetModifier
-		wantInput dynamodb.TransactGetItemsInput
+		Operation operation.TransactGetItemsCollection
+		modifier  operation.TransactGetItemsModifier
+		wantInput []*dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifier := operation.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		input.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
 		return nil
 	})
 
-	modifierFails := operation.TransactionGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifierFails := operation.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		return ErrMock
 	})
 
@@ -169,22 +171,24 @@ func TestTransactionGetModify(t *testing.T) {
 			name:      "returns the input successfully",
 			Operation: table.getCustomers("123", "345"),
 			modifier:  modifier,
-			wantInput: dynamodb.TransactGetItemsInput{
-				ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
-				TransactItems: []types.TransactGetItem{
-					{
-						Get: &types.Get{
-							TableName: aws.String("customer-table"),
-							Key: map[string]types.AttributeValue{
-								"id": &types.AttributeValueMemberS{Value: "123"},
+			wantInput: []*dynamodb.TransactGetItemsInput{
+				{
+					ReturnConsumedCapacity: types.ReturnConsumedCapacityTotal,
+					TransactItems: []types.TransactGetItem{
+						{
+							Get: &types.Get{
+								TableName: aws.String("customer-table"),
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "123"},
+								},
 							},
 						},
-					},
-					{
-						Get: &types.Get{
-							TableName: aws.String("customer-table"),
-							Key: map[string]types.AttributeValue{
-								"id": &types.AttributeValueMemberS{Value: "345"},
+						{
+							Get: &types.Get{
+								TableName: aws.String("customer-table"),
+								Key: map[string]types.AttributeValue{
+									"id": &types.AttributeValueMemberS{Value: "345"},
+								},
 							},
 						},
 					},
@@ -206,7 +210,8 @@ func TestTransactionGetModify(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			input, err := tc.Operation.Modify(tc.modifier).Invoke(context.TODO())
+			operation := append(tc.Operation, tc.modifier)
+			input, err := operation.Invoke(context.TODO())
 			if tc.wantErr {
 				assert.Error(t, err)
 				return
@@ -214,7 +219,7 @@ func TestTransactionGetModify(t *testing.T) {
 			if !assert.NoError(t, err) {
 				return
 			}
-			assert.EqualValues(t, &tc.wantInput, input)
+			assert.ElementsMatch(t, tc.wantInput, input)
 		})
 	}
 }

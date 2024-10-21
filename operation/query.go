@@ -7,11 +7,11 @@ import (
 	"github.com/nisimpson/ezddb"
 )
 
-// QueryOperation functions generate dynamodb input data given some context.
-type QueryOperation func(context.Context) (*dynamodb.QueryInput, error)
+// Query functions generate dynamodb input data given some context.
+type Query func(context.Context) (*dynamodb.QueryInput, error)
 
 // Invoke is a wrapper around the function invocation for stylistic purposes.
-func (q QueryOperation) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
+func (q Query) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
 	return q(ctx)
 }
 
@@ -30,7 +30,7 @@ func (q QueryModifierFunc) ModifyQueryInput(ctx context.Context, input *dynamodb
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (p QueryOperation) Modify(modifiers ...QueryModifier) QueryOperation {
+func (p Query) Modify(modifiers ...QueryModifier) Query {
 	mapper := func(ctx context.Context, input *dynamodb.QueryInput, mod QueryModifier) error {
 		return mod.ModifyQueryInput(ctx, input)
 	}
@@ -40,7 +40,7 @@ func (p QueryOperation) Modify(modifiers ...QueryModifier) QueryOperation {
 }
 
 // Execute executes the Operation, returning the API result.
-func (p QueryOperation) Execute(ctx context.Context,
+func (p Query) Execute(ctx context.Context,
 	querier ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (p QueryOperation) Execute(ctx context.Context,
 // WithPagination creates a new Operation that exhastively retrieves items from the
 // database using the initial operation. Use the callback to access data from each
 // response.
-func (p QueryOperation) WithPagination(callback PageQueryCallback) QueryExecutor {
+func (p Query) WithPagination(callback PageQueryCallback) QueryExecutor {
 	return func(ctx context.Context, q ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
 		input, err := p.Invoke(ctx)
 		if err != nil {
