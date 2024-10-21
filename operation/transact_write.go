@@ -25,7 +25,7 @@ func newTransactionWriteOperation() TransactWriteItems {
 	}
 }
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (t TransactWriteItems) Invoke(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
 	return t(ctx)
 }

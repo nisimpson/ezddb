@@ -97,7 +97,7 @@ func (BatchWriteItemCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutp
 	return output
 }
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (g BatchWriteItem) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 	return g(ctx)
 }

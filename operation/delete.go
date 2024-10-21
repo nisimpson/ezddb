@@ -12,7 +12,7 @@ import (
 // Delete functions generate dynamodb put input data given some context.
 type Delete func(context.Context) (*dynamodb.DeleteItemInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (d Delete) Invoke(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
 	return d(ctx)
 }

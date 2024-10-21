@@ -12,7 +12,7 @@ import (
 // Put functions generate dynamodb put input data given some context.
 type Put func(context.Context) (*dynamodb.PutItemInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (p Put) Invoke(ctx context.Context) (*dynamodb.PutItemInput, error) {
 	return p(ctx)
 }

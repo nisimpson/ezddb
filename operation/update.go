@@ -11,7 +11,7 @@ import (
 // UpdateItem functions generate dynamodb input data given some context.
 type UpdateItem func(context.Context) (*dynamodb.UpdateItemInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (u UpdateItem) Invoke(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 	return u(ctx)
 }

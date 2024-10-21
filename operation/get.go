@@ -12,7 +12,7 @@ import (
 // Get functions generate dynamodb put input data given some context.
 type Get func(context.Context) (*dynamodb.GetItemInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (g Get) Invoke(ctx context.Context) (*dynamodb.GetItemInput, error) {
 	return g(ctx)
 }

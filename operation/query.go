@@ -10,7 +10,7 @@ import (
 // Query functions generate dynamodb input data given some context.
 type Query func(context.Context) (*dynamodb.QueryInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (q Query) Invoke(ctx context.Context) (*dynamodb.QueryInput, error) {
 	return q(ctx)
 }

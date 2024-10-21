@@ -6,12 +6,13 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
-	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/internal/collection"
 )
 
 const (
-	MaxTransactionGetOperations = 25
+	// The maximum number of items that can be retrieved in a single call to TransactGetItems.
+	// This value is used to chunk the operations into batches of a maximum size.
+	MaxTransactGetOperations = 25
 )
 
 // TransactionGetter implements the dynamodb Transact Get API.
@@ -29,15 +30,18 @@ func newTransactionGetOperation() TransactGetItems {
 	}
 }
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (t TransactGetItems) Invoke(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 	return t(ctx)
 }
 
+// TransactGetItemsCollection is a collection of TransactGetItems operations.
+// It provides methods to join and execute the operations.
 type TransactGetItemsCollection []TransactGetItemsModifier
 
+// Join joins the TransactGetItems operations in the collection into batches of the maximum size.
 func (c TransactGetItemsCollection) Join() []TransactGetItems {
-	batches := collection.Chunk(c, MaxTransactionGetOperations)
+	batches := collection.Chunk(c, MaxTransactGetOperations)
 	ops := make([]TransactGetItems, 0, len(batches))
 	for _, batch := range batches {
 		op := newTransactionGetOperation()
@@ -47,6 +51,7 @@ func (c TransactGetItemsCollection) Join() []TransactGetItems {
 	return ops
 }
 
+// Invoke joins, chunks, and generates multiple [dynamodb.TransactGetItemsInput] requests.
 func (c TransactGetItemsCollection) Invoke(ctx context.Context) ([]*dynamodb.TransactGetItemsInput, error) {
 	ops := c.Join()
 	inps := make([]*dynamodb.TransactGetItemsInput, 0, len(ops))
@@ -60,6 +65,8 @@ func (c TransactGetItemsCollection) Invoke(ctx context.Context) ([]*dynamodb.Tra
 	return inps, nil
 }
 
+// Execute executes the [TransactGetItems] operations sequentially,
+// merging the output and errors into a single output.
 func (c TransactGetItemsCollection) Execute(ctx context.Context,
 	getter TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
 	ops := c.Join()
@@ -76,8 +83,10 @@ func (c TransactGetItemsCollection) Execute(ctx context.Context,
 	return outs, errors.Join(errs...)
 }
 
+// ExecuteConcurrently executes the collection of operations concurrently, awaiting and returning
+// the resulting outputs.
 func (c TransactGetItemsCollection) ExecuteConcurrently(ctx context.Context,
-	getter TransactionGetter, visitor ezddb.ItemVisitor, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
+	getter TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
 	ops := c.Join()
 	outs := make([]*dynamodb.TransactGetItemsOutput, len(ops))
 	errs := make([]error, len(ops))

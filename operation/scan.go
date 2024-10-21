@@ -10,7 +10,7 @@ import (
 // Scan functions generate dynamodb scan input data given some context.
 type Scan func(context.Context) (*dynamodb.ScanInput, error)
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (q Scan) Invoke(ctx context.Context) (*dynamodb.ScanInput, error) {
 	return q(ctx)
 }

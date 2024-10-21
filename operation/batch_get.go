@@ -46,22 +46,6 @@ func (c BatchGetItemCollection) Modify(modifiers ...BatchGetItemModifier) BatchG
 	return append(c, modifiers...)
 }
 
-func (BatchGetItemCollection) readOutput(v ezddb.ItemVisitor, outs []*dynamodb.BatchGetItemOutput) error {
-	for _, o := range outs {
-		if o == nil {
-			continue
-		}
-		for _, items := range o.Responses {
-			for _, item := range items {
-				if err := ezddb.VisitItem(item, v); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
 func (c BatchGetItemCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGetItemInput, error) {
 	ops := c.Join()
 	inputs := make([]*dynamodb.BatchGetItemInput, 0, len(ops))
@@ -75,8 +59,7 @@ func (c BatchGetItemCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGe
 	return inputs, nil
 }
 
-func (c BatchGetItemCollection) Execute(ctx context.Context,
-	getter ezddb.BatchGetter, visitor ezddb.ItemVisitor, options ...func(*dynamodb.Options)) error {
+func (c BatchGetItemCollection) Execute(ctx context.Context, getter ezddb.BatchGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.BatchGetItemOutput, error) {
 	ops := c.Join()
 	outs := make([]*dynamodb.BatchGetItemOutput, 0, len(ops))
 	errs := make([]error, 0, len(ops))
@@ -88,12 +71,10 @@ func (c BatchGetItemCollection) Execute(ctx context.Context,
 		}
 		outs = append(outs, out)
 	}
-	errs = append(errs, c.readOutput(visitor, outs))
-	return errors.Join(errs...)
+	return outs, errors.Join(errs...)
 }
 
-func (c BatchGetItemCollection) ExecuteConcurrently(ctx context.Context,
-	getter ezddb.BatchGetter, visitor ezddb.ItemVisitor, options ...func(*dynamodb.Options)) error {
+func (c BatchGetItemCollection) ExecuteConcurrently(ctx context.Context, getter ezddb.BatchGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.BatchGetItemOutput, error) {
 	ops := c.Join()
 	outs := make([]*dynamodb.BatchGetItemOutput, len(ops))
 	errs := make([]error, len(ops))
@@ -111,11 +92,10 @@ func (c BatchGetItemCollection) ExecuteConcurrently(ctx context.Context,
 		}(i, op)
 	}
 	wg.Wait()
-	errs = append(errs, c.readOutput(visitor, outs))
-	return errors.Join(errs...)
+	return outs, errors.Join(errs...)
 }
 
-// Invoke is a wrapper around the function invocation for stylistic purposes.
+// Invoke is a wrapper around the function invocation for semantic purposes.
 func (g BatchGetItem) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, error) {
 	return g(ctx)
 }
