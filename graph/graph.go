@@ -54,10 +54,10 @@ func newNodeRef(source, target Node, relation string, reverse bool) nodeRef {
 func (n nodeRef) DynamoItemType() string { return n.Relationship }
 
 func (n nodeRef) DynamoMarshalRecord(options *MarshalOptions) {
-	options.HashID = n.SourceNodeID
-	options.SortID = n.TargetNodeID
-	options.HashPrefix = n.SourceNodePrefix
-	options.SortPrefix = n.TargetNodePrefix
+	options.HashKeyID = n.SourceNodeID
+	options.SortKeyID = n.TargetNodeID
+	options.HashKeyPrefix = n.SourceNodePrefix
+	options.SortKeyPrefix = n.TargetNodePrefix
 	options.SupportReverseLookup = true
 	options.SupportCollectionQuery = false
 }
@@ -69,10 +69,10 @@ type edge[T Node] struct {
 func (e edge[T]) DynamoItemType() string { return e.Node.DynamoNodeType() }
 
 func (e edge[T]) DynamoMarshalRecord(options *MarshalOptions) {
-	options.HashID = e.Node.DynamoNodeID()
-	options.SortID = e.Node.DynamoNodeID()
-	options.HashPrefix = e.Node.DynamoNodePrefix()
-	options.SortPrefix = e.Node.DynamoNodePrefix()
+	options.HashKeyID = e.Node.DynamoNodeID()
+	options.SortKeyID = e.Node.DynamoNodeID()
+	options.HashKeyPrefix = e.Node.DynamoNodePrefix()
+	options.SortKeyPrefix = e.Node.DynamoNodePrefix()
 	options.SupportReverseLookup = true
 	options.SupportCollectionQuery = true
 }
@@ -103,24 +103,24 @@ func (g Graph[T]) refsOf(node T) []nodeRef {
 	return items
 }
 
-func (g Graph[T]) PutsNode(node T, opts ...func(*Options)) operation.Put {
-	return g.nodes.Puts(edge[T]{Node: node}, opts...)
+func (g Graph[T]) PutNode(node T, opts ...func(*Options)) operation.Put {
+	return g.nodes.Put(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) PutsEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
+func (g Graph[T]) PutEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
 	batches := make(operation.BatchWriteItemCollection, 0)
 	for _, ref := range g.refsOf(node) {
-		batches = append(batches, g.refs.Puts(ref))
+		batches = append(batches, g.refs.Put(ref))
 	}
 	return batches
 }
 
-func (g Graph[T]) GetsNode(node T, opts ...func(*Options)) operation.Get {
-	return g.nodes.Gets(edge[T]{Node: node}, opts...)
+func (g Graph[T]) GetNode(node T, opts ...func(*Options)) operation.Get {
+	return g.nodes.Get(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) UpdatesNode(node T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
-	return g.nodes.Updates(edge[T]{Node: node}, strategy, opts...)
+func (g Graph[T]) UpdateNode(node T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
+	return g.nodes.Update(edge[T]{Node: node}, strategy, opts...)
 }
 
 type NodeAttribute string
@@ -134,11 +134,11 @@ func (a NodeAttribute) ExpressionName() expression.NameBuilder {
 	return expression.Name(name)
 }
 
-func (g Graph[T]) DeletesNode(node T, opts ...func(*Options)) operation.Delete {
-	return g.nodes.Deletes(edge[T]{Node: node}, opts...)
+func (g Graph[T]) DeleteNode(node T, opts ...func(*Options)) operation.Delete {
+	return g.nodes.Delete(edge[T]{Node: node}, opts...)
 }
 
-func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) operation.BatchWriteItemCollection {
+func (g Graph[T]) DeleteNodeEdges(node T, relation string, opts ...func(*Options)) operation.BatchWriteItemCollection {
 	g.refs.options.apply(opts)
 	var (
 		reverse    = node.DynamoNodeRefIsReverseLookup(relation)
@@ -147,20 +147,20 @@ func (g Graph[T]) DeletesEdges(node T, relation string, opts ...func(*Options)) 
 	)
 
 	for _, ref := range refs {
-		collection = append(collection, g.refs.Deletes(newNodeRef(node, ref, relation, reverse)))
+		collection = append(collection, g.refs.Delete(newNodeRef(node, ref, relation, reverse)))
 	}
 
 	return collection
 }
 
-func (g Graph[T]) DeletesAllEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
+func (g Graph[T]) DeleteAllNodeEdges(node T, opts ...func(*Options)) operation.BatchWriteItemCollection {
 	var (
 		definitions = node.DynamoNodeRelationships()
 		collection  = make(operation.BatchWriteItemCollection, 0)
 	)
 
 	for def := range definitions {
-		collection = append(collection, g.DeletesEdges(node, def)...)
+		collection = append(collection, g.DeleteNodeEdges(node, def)...)
 	}
 
 	return collection
@@ -233,7 +233,7 @@ type ListNodesQueryBuilder[T Node] struct {
 }
 
 func (b ListNodesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.Query {
-	return b.graph.nodes.Queries(CollectionQuery{
+	return b.graph.nodes.Query(CollectionQuery{
 		ItemType: b.node.DynamoNodeType(),
 		Cursor:   b.cursor,
 		Filter:   b.filter,
@@ -287,7 +287,7 @@ func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.Q
 	// perform a reverse lookup for the edges forming the target
 	// relationship.
 	if b.node.DynamoNodeRefIsReverseLookup(b.relation) {
-		return b.graph.refs.Queries(ReverseLookupQuery{
+		return b.graph.refs.Query(ReverseLookupQuery{
 			SortKeyValue:      record.SK,
 			GSI1SortKeyPrefix: def.DynamoNodePrefix(),
 			Cursor:            b.cursor,
@@ -297,8 +297,8 @@ func (b ListEdgesQueryBuilder[T]) BuildQuery(opts ...func(*Options)) operation.Q
 
 	// perform a partition lookup for the edges forming the source
 	// relationship.
-	return b.graph.refs.Queries(LookupQuery{
-		PartitionKeyValue: record.PK,
+	return b.graph.refs.Query(LookupQuery{
+		PartitionKeyValue: record.HK,
 		SortKeyPrefix:     def.DynamoNodePrefix(),
 		Cursor:            b.cursor,
 		Limit:             b.limit,

@@ -19,7 +19,7 @@ import (
 const (
 	DefaultDelimiter = ":"
 
-	AttributeNamePK                   = "pk"
+	AttributeNameHK                   = "hk"
 	AttributeNameSK                   = "sk"
 	AttributeNameItemType             = "itemType"
 	AttributeNameCollectionSortKey    = "gsi2sk"
@@ -31,7 +31,7 @@ const (
 )
 
 var (
-	FilterPK            = filter.AttributeOf(AttributeNamePK)
+	FilterPK            = filter.AttributeOf(AttributeNameHK)
 	FilterSK            = filter.AttributeOf(AttributeNameSK)
 	FilterCreatedAt     = filter.AttributeOf(AttributeNameCreatedAt)
 	FilterUpdatedAt     = filter.AttributeOf(AttributeNameUpdatedAt)
@@ -47,7 +47,7 @@ type Data interface {
 }
 
 type Record[T Data] struct {
-	PK        string    `dynamodbav:"pk"`
+	HK        string    `dynamodbav:"hk"`
 	SK        string    `dynamodbav:"sk"`
 	ItemType  string    `dynamodbav:"itemType"`
 	GSI1SK    string    `dynamodbav:"gsi1sk,omitempty"`
@@ -60,7 +60,7 @@ type Record[T Data] struct {
 
 func (r Record[T]) Key() ezddb.Item {
 	return ezddb.Item{
-		AttributeNamePK: &types.AttributeValueMemberS{Value: r.PK},
+		AttributeNameHK: &types.AttributeValueMemberS{Value: r.HK},
 		AttributeNameSK: &types.AttributeValueMemberS{Value: r.SK},
 	}
 }
@@ -68,10 +68,10 @@ func (r Record[T]) Key() ezddb.Item {
 type clock func() time.Time
 
 type MarshalOptions struct {
-	HashID                 string
-	SortID                 string
-	HashPrefix             string
-	SortPrefix             string
+	HashKeyID              string
+	SortKeyID              string
+	HashKeyPrefix          string
+	SortKeyPrefix          string
 	Delimiter              string
 	SupportReverseLookup   bool
 	SupportCollectionQuery bool
@@ -95,8 +95,8 @@ func Marshal[T Data](data T, opts ...func(*MarshalOptions)) Record[T] {
 	ts := options.Tick().UTC()
 
 	record := Record[T]{
-		PK:        options.HashPrefix + DefaultDelimiter + options.HashID,
-		SK:        options.SortPrefix + DefaultDelimiter + options.SortID,
+		HK:        options.HashKeyPrefix + DefaultDelimiter + options.HashKeyID,
+		SK:        options.SortKeyPrefix + DefaultDelimiter + options.SortKeyID,
 		ItemType:  data.DynamoItemType(),
 		Data:      &data,
 		Expires:   options.ExpirationDate,
@@ -105,7 +105,7 @@ func Marshal[T Data](data T, opts ...func(*MarshalOptions)) Record[T] {
 	}
 
 	if options.SupportReverseLookup {
-		record.GSI1SK = record.PK
+		record.GSI1SK = record.HK
 	}
 	if options.SupportCollectionQuery {
 		record.GSI2SK = ts.Format(time.RFC3339)
@@ -166,18 +166,6 @@ type Paginator struct {
 	client  PaginationClient
 }
 
-func NewPaginator(client PaginationClient, opts ...func(*Options)) Paginator {
-	options := Options{
-		TableName:                "pagination",
-		ReverseLookupIndexName:   "reverse-lookup-index",
-		CollectionQueryIndexName: "collection-query-index",
-		Tick:                     time.Now,
-	}
-
-	options.apply(opts)
-	return Paginator{options: options, client: client}
-}
-
 var (
 	_ ezddb.StartKeyProvider      = Paginator{}
 	_ ezddb.StartKeyTokenProvider = Paginator{}
@@ -193,10 +181,10 @@ func (p page) DynamoItemType() string {
 }
 
 func (p page) DynamoMarshalRecord(o *MarshalOptions) {
-	o.HashID = p.ID
-	o.SortID = p.ID
-	o.HashPrefix = "pagination"
-	o.SortPrefix = "pagination"
+	o.HashKeyID = p.ID
+	o.SortKeyID = p.ID
+	o.HashKeyPrefix = "pagination"
+	o.SortKeyPrefix = "pagination"
 	o.SupportCollectionQuery = false
 	o.SupportReverseLookup = false
 }
@@ -211,7 +199,7 @@ func (p Paginator) GetStartKey(ctx context.Context, token string) (ezddb.Item, e
 		table = newTable[page](p.options)
 	)
 
-	out, err := table.Gets(page{ID: token}).Execute(ctx, p.client)
+	out, err := table.Get(page{ID: token}).Execute(ctx, p.client)
 	if err != nil {
 		return nil, fmt.Errorf("get page record from token '%s': %w", token, err)
 	}
@@ -252,11 +240,15 @@ func (p Paginator) GetStartKeyToken(ctx context.Context, startKey map[string]typ
 		return "", fmt.Errorf("get start key: encode: %w", err)
 	}
 
-	_, err = table.Puts(page{ID: id, StartKey: buf.Bytes()}).Execute(ctx, p.client)
+	_, err = table.Put(page{ID: id, StartKey: buf.Bytes()}).Execute(ctx, p.client)
 	return id, err
 }
 
-func (t Table[T]) Puts(data T, opts ...func(*Options)) operation.Put {
+func (t Table[T]) Paginator(client PaginationClient) Paginator {
+	return Paginator{client: client, options: t.options}
+}
+
+func (t Table[T]) Put(data T, opts ...func(*Options)) operation.Put {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	item, err := t.options.Marshaler.MarshalMap(record)
@@ -272,7 +264,7 @@ func (t Table[T]) Puts(data T, opts ...func(*Options)) operation.Put {
 	}
 }
 
-func (t Table[T]) Gets(data T, opts ...func(*Options)) operation.Get {
+func (t Table[T]) Get(data T, opts ...func(*Options)) operation.Get {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	key := record.Key()
@@ -284,7 +276,7 @@ func (t Table[T]) Gets(data T, opts ...func(*Options)) operation.Get {
 	}
 }
 
-func (t Table[T]) Deletes(data T, opts ...func(*Options)) operation.Delete {
+func (t Table[T]) Delete(data T, opts ...func(*Options)) operation.Delete {
 	t.options.apply(opts)
 	record := Marshal(data, t.options.MarshalOptions...)
 	key := record.Key()
@@ -300,7 +292,7 @@ type UpdateStrategy interface {
 	modify(op operation.UpdateItem, opts Options) operation.UpdateItem
 }
 
-func (t Table[T]) Updates(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
+func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
 	t.options.apply(opts)
 	record := Marshal(id, t.options.MarshalOptions...)
 
@@ -342,7 +334,7 @@ type QueryStrategy interface {
 	modify(op operation.Query, opts Options) operation.Query
 }
 
-func (t Table[T]) Queries(strategy QueryStrategy, opts ...func(*Options)) operation.Query {
+func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*Options)) operation.Query {
 	t.options.apply(opts)
 	return strategy.modify(func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		return &dynamodb.QueryInput{
@@ -445,7 +437,7 @@ type LookupQuery struct {
 
 func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
-	keyCondition := partitionKeyEquals(q.PartitionKeyValue)
+	keyCondition := hashKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {
 		keyCondition = keyCondition.And(sortKeyStartsWith(q.SortKeyPrefix))
 	}
@@ -467,8 +459,8 @@ func sortKeyStartsWith(prefix string) expression.KeyConditionBuilder {
 	return expression.KeyBeginsWith(expression.Key(AttributeNameSK), prefix)
 }
 
-func partitionKeyEquals(value string) expression.KeyConditionBuilder {
-	return expression.KeyEqual(expression.Key(AttributeNamePK), expression.Value(value))
+func hashKeyEquals(value string) expression.KeyConditionBuilder {
+	return expression.KeyEqual(expression.Key(AttributeNameHK), expression.Value(value))
 }
 
 func sortKeyEquals(value string) expression.KeyConditionBuilder {
