@@ -10,11 +10,11 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
-// Entity represents a singular "thing" within an entity-relationship model.
+// Entity2 represents a singular "thing" within an entity-relationship model.
 // Entities can form relationships with other entities; these associations
 // are stored within the dynamodb table as separate rows within the table.
 // Use the [Graph] client to perform CRUD operations on stored entities.
-type Entity interface {
+type Entity2 interface {
 	// DynamoID returns the unique identifier associated with the entity.
 	DynamoID() string
 	// DynamoEntityType returns the type of entity. This is used to
@@ -30,7 +30,7 @@ type Entity interface {
 	DynamoIsReverseRelationship(relation string) bool
 	// DynamoGetRelationship returns a list of entities that are related to
 	// this [Entity] by the given relationship.
-	DynamoGetRelationship(relation string) []Entity
+	DynamoGetRelationship(relation string) []Entity2
 	// DynamoSetRelationship is called when a relationship between this [Entity] and the
 	// target [Entity] is defined.
 	DynamoSetRelationship(relation string, entityID string)
@@ -50,7 +50,7 @@ type nodeRef struct {
 	TargetNodeType   string `dynamodbav:"targetNodeType"`
 }
 
-func newNodeRef(source, target Entity, relation string, reverse bool) nodeRef {
+func newNodeRef(source, target Entity2, relation string, reverse bool) nodeRef {
 	src, tgt := source, target
 	if reverse {
 		// relationships are stored in reverse order
@@ -81,7 +81,7 @@ func (n nodeRef) DynamoMarshalRecord(options *MarshalOptions) {
 	options.SupportCollectionQuery = false
 }
 
-type edge[T Entity] struct {
+type edge[T Entity2] struct {
 	Node T `dynamodbav:"node"`
 }
 
@@ -123,12 +123,12 @@ func (e edge[T]) DynamoMarshalRecord(options *MarshalOptions) {
 // is stored; Given nodes A and B, edge A -> B is stored on partition A
 // and is queried on node A. In order to query the reverse edge B -> A,
 // Graph uses the reverse lookup index on node B.
-type Graph[T Entity] struct {
+type Graph[T Entity2] struct {
 	nodes Table[edge[T]]
 	refs  Table[nodeRef]
 }
 
-func New[T Entity](tableName string, opts ...func(*Options)) Graph[T] {
+func New[T Entity2](tableName string, opts ...func(*Options)) Graph[T] {
 	return Graph[T]{
 		nodes: NewTable[edge[T]](tableName, opts...),
 		refs:  NewTable[nodeRef](tableName, opts...),
@@ -270,7 +270,7 @@ func (g Graph[T]) UnmarshalEdge(node T, item ezddb.Item, opts ...func(*Options))
 	return nil
 }
 
-type ListNodesQueryBuilder[T Entity] struct {
+type ListNodesQueryBuilder[T Entity2] struct {
 	node   T
 	graph  Graph[T]
 	cursor string
@@ -306,7 +306,7 @@ func (g Graph[T]) ListNodes(node T, relation string) ListNodesQueryBuilder[T] {
 	return ListNodesQueryBuilder[T]{node: node, graph: g}
 }
 
-type ListEdgesQueryBuilder[T Entity] struct {
+type ListEdgesQueryBuilder[T Entity2] struct {
 	node     T
 	relation string
 	graph    Graph[T]

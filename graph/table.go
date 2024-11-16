@@ -41,12 +41,17 @@ var (
 	FilterReverseLookup = filter.AttributeOf(AttributeNameReverseLookupSortKey)
 )
 
-type Data interface {
+// Entity2 represents a singular "thing" within an entity-relationship model.
+// Entities can form relationships with other entities; these associations
+// are stored within the dynamodb table as separate rows within the table.
+// Use the [Graph] client to perform CRUD operations on stored entities.
+type Entity interface {
+	DynamoID() string
 	DynamoItemType() string
 	DynamoMarshalRecord(*MarshalOptions)
 }
 
-type Record[T Data] struct {
+type Record[T Entity] struct {
 	HK        string    `dynamodbav:"hk"`
 	SK        string    `dynamodbav:"sk"`
 	ItemType  string    `dynamodbav:"itemType"`
@@ -75,13 +80,18 @@ type MarshalOptions struct {
 	Delimiter              string
 	SupportReverseLookup   bool
 	SupportCollectionQuery bool
+	ReverseLookupSortKey   string
 	Tick                   clock
 	ExpirationDate         time.Time
 }
 
-func Marshal[T Data](data T, opts ...func(*MarshalOptions)) Record[T] {
+func Marshal[T Entity](data T, opts ...func(*MarshalOptions)) Record[T] {
 	options := MarshalOptions{
-		Tick: time.Now,
+		HashKeyID:     data.DynamoID(),
+		HashKeyPrefix: data.DynamoItemType(),
+		SortKeyID:     data.DynamoID(),
+		SortKeyPrefix: data.DynamoItemType(),
+		Tick:          time.Now,
 	}
 
 	// marshal data
@@ -105,8 +115,14 @@ func Marshal[T Data](data T, opts ...func(*MarshalOptions)) Record[T] {
 	}
 
 	if options.SupportReverseLookup {
+		record.GSI1SK = options.ReverseLookupSortKey
 		record.GSI1SK = record.HK
+
+		if record.GSI1SK == "" {
+			record.GSI1SK = record.HK
+		}
 	}
+
 	if options.SupportCollectionQuery {
 		record.GSI2SK = ts.Format(time.RFC3339)
 	}
@@ -135,11 +151,11 @@ func (o *Options) apply(opts []func(*Options)) {
 	}
 }
 
-type Table[T Data] struct {
+type Table[T Entity] struct {
 	options Options
 }
 
-func NewTable[T Data](tableName string, opts ...func(*Options)) Table[T] {
+func NewTable[T Entity](tableName string, opts ...func(*Options)) Table[T] {
 	options := Options{
 		TableName:                tableName,
 		ReverseLookupIndexName:   "reverse-lookup-index",
@@ -152,7 +168,7 @@ func NewTable[T Data](tableName string, opts ...func(*Options)) Table[T] {
 	return newTable[T](options)
 }
 
-func newTable[T Data](options Options) Table[T] {
+func newTable[T Entity](options Options) Table[T] {
 	return Table[T]{options: options}
 }
 
@@ -176,9 +192,9 @@ type page struct {
 	StartKey []byte
 }
 
-func (p page) DynamoItemType() string {
-	return "Pagination"
-}
+func (p page) DynamoID() string { return p.ID }
+
+func (p page) DynamoItemType() string { return "Pagination" }
 
 func (p page) DynamoMarshalRecord(o *MarshalOptions) {
 	o.HashKeyID = p.ID
