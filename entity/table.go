@@ -1,4 +1,4 @@
-package graph
+package entity
 
 import (
 	"bytes"
@@ -31,7 +31,7 @@ const (
 )
 
 var (
-	FilterPK            = filter.AttributeOf(AttributeNameHK)
+	FilterHK            = filter.AttributeOf(AttributeNameHK)
 	FilterSK            = filter.AttributeOf(AttributeNameSK)
 	FilterCreatedAt     = filter.AttributeOf(AttributeNameCreatedAt)
 	FilterUpdatedAt     = filter.AttributeOf(AttributeNameUpdatedAt)

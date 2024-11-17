@@ -86,14 +86,14 @@ func GreaterThanEqual[U comparable](a Attribute, value U) Builder {
 	})
 }
 
-func Exists(a attribute) Builder {
+func Exists(a Attribute) Builder {
 	return newBuilder(unaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationExists,
 	})
 }
 
-func NotExists(a attribute) Builder {
+func NotExists(a Attribute) Builder {
 	return newBuilder(unaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationNotExists,
@@ -384,6 +384,8 @@ type Builder interface {
 	And(Expression) Builder
 	Or(Expression) Builder
 	Not() Builder
+	Condition() expression.ConditionBuilder
+	KeyCondition() expression.KeyConditionBuilder
 }
 
 type builder struct {
@@ -408,6 +410,14 @@ func Or(left Expression, right Expression) Builder {
 
 func (b builder) Not() Builder {
 	return builder{expr: b}
+}
+
+func (b builder) Condition() expression.ConditionBuilder {
+	return Condition(b)
+}
+
+func (b builder) KeyCondition() expression.KeyConditionBuilder {
+	return KeyCondition(b)
 }
 
 func Not(expr Expression) Builder {
