@@ -33,11 +33,9 @@ func (c BatchGetItemCollection) Join() []BatchGetItem {
 	batches := collection.Chunk(c, MaxBatchReadSize)
 	ops := make([]BatchGetItem, 0, len(batches))
 	for _, batch := range batches {
-		opt := newBatchGetOperation()
-		for _, mod := range batch {
-			opt = opt.Modify(mod)
-		}
-		ops = append(ops, opt)
+		operation := newBatchGetOperation()
+		operation = operation.Modify(batch...)
+		ops = append(ops, operation)
 	}
 	return ops
 }

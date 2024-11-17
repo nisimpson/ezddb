@@ -7,12 +7,13 @@ import (
 	"github.com/nisimpson/ezddb/operation"
 )
 
-// Relationship is formed between two [Entity] nodes together in a single direction,
+// Relationship is formed between two [Data] nodes together in a single direction,
 // storing the start and end entity ids. Relationships between entities can
 // be grouped together by relationship. An entity relationship with itself
 // -- an "identity" relationship -- stores the target Entity info.
-type Relationship struct {
-	Entity
+type Relationship[T Data] struct {
+	Value T `dynamodbav:"value"`
+
 	StartEntityID string `dynamodbav:"gStartId"`      // The id of the starting Entity.
 	EndEntityID   string `dynamodbav:"gEndId"`        // The id of the ending Entity.
 	Relationship  string `dynamodbav:"gRelationship"` // The relationship between the two vertices.
@@ -23,6 +24,8 @@ type Relationship struct {
 	startEntityType string // The starting Entity type.
 	endEntityType   string // The ending Entity type.
 	isNode          bool   // true if the edge is an identity edge, or Entity node.
+	isReverse       bool   // true if the relationship is a reverse relationship.
+	relationshipSK  string
 }
 
 const (
@@ -31,67 +34,72 @@ const (
 	FilterEndEntityID   = Filter("data.gEndId")
 )
 
-func newIdentityRelationship(e Entity) Relationship {
-	edge := newRelationship(e, e, "")
+func newIdentityRelationship(e Data) Relationship[Data] {
+	edge := newRelationship(e, e, "", e.DynamoItemType())
 	edge.itemType = e.DynamoItemType()
+	edge.isNode = true
+	edge.Value = e
 	return edge
 }
 
-func newRelationship(start, end Entity, relationship string) Relationship {
-	return Relationship{
+func newRelationship(start, end Data, relationship string, relationshipSK string) Relationship[Data] {
+	return Relationship[Data]{
 		StartEntityID:   start.DynamoID(),
 		EndEntityID:     end.DynamoID(),
 		Relationship:    relationship,
 		startEntityType: start.DynamoItemType(),
 		endEntityType:   end.DynamoItemType(),
 		itemType:        "relationship",
+		relationshipSK:  relationshipSK,
 	}
 }
 
+func newReverseRelationship(start, end Data, relationship string, relationshipSK string) Relationship[Data] {
+	edge := newRelationship(end, start, relationship, relationshipSK)
+	edge.isReverse = true
+	return edge
+}
+
+// DynamoID returns the start entity id.
+func (e Relationship[T]) DynamoID() string { return e.StartEntityID }
+
 // DynamoItemType returns the relationship type -- "relationship" for
 // relationships between entities, or the start entity's item type.
-func (e Relationship) DynamoItemType() string { return e.itemType }
+func (e Relationship[T]) DynamoItemType() string { return e.itemType }
 
-// DynamoMarshalRecord implements [Entity], which can be stored as data records
+// DynamoMarshalRecord implements [Data], which can be stored as data records
 // in the dynamodb [Table].
-func (e Relationship) DynamoMarshalRecord(opts *MarshalOptions) {
+func (e Relationship[T]) DynamoMarshalRecord(opts *MarshalOptions) {
 	opts.HashKeyID = e.StartEntityID
 	opts.SortKeyID = e.EndEntityID
 	opts.HashKeyPrefix = e.startEntityType
 	opts.SortKeyPrefix = e.endEntityType
 	opts.SupportCollectionQuery = e.isNode
 	opts.SupportReverseLookup = true
-
-	if e.Relationship == "" {
-		// ex, "customer/orders"
-		opts.ReverseLookupSortKey = e.startEntityType + "/" + e.Relationship
-	} else {
-		// ex, "customer"
-		opts.ReverseLookupSortKey = e.startEntityType
-	}
+	opts.ReverseLookupSortKey = e.relationshipSK
 }
 
-// UnmarshalEntity extracts the [Entity] information from the specified
+// UnmarshalEntity extracts the [Data] information from the specified
 // item attribute map.
-func UnmarshalEntity[V Entity](item ezddb.Item) (V, error) {
+func UnmarshalEntity[T Data](item ezddb.Item) (T, error) {
 	var (
-		Entity V
-		record = Record[Relationship]{}
+		data   T
+		record = Record[Relationship[T]]{}
 		err    = attributevalue.UnmarshalMap(item, &record)
 	)
 
 	if err == nil {
-		Entity = record.Data.Entity.(V)
+		data = record.Data.Value
 	}
 
-	return Entity, err
+	return data, err
 }
 
 // RelationshipUnmarshaler can extract edge information from dynamodb items,
 // including the relationship name, starting Entity id, and ending
 // Entity id.
 type RelationshipUnmarshaler interface {
-	// UnmarshalEdge extracts the edge information from the specified
+	// UnmarshalRelationship extracts the edge information from the specified
 	// item attribute map.
 	//
 	// The relationship name, start Entity id, and end Entity id are
@@ -99,7 +107,7 @@ type RelationshipUnmarshaler interface {
 	//
 	// The method should return an error if the item does not contain
 	// the expected edge information.
-	UnmarshalEdge(relationship string, startID, endID string) error
+	UnmarshalRelationship(name string, startID, endID string) error
 }
 
 // UnmarshalRelationship extracts the edge information from the specified
@@ -107,14 +115,14 @@ type RelationshipUnmarshaler interface {
 //
 // The relationship name, start Entity id, and end Entity id are
 // extracted from the item and passed to the [RelationshipUnmarshaler].
-func UnmarshalRelationship[V RelationshipUnmarshaler](item ezddb.Item, out RelationshipUnmarshaler) error {
+func UnmarshalRelationship[T RelationshipUnmarshaler](item ezddb.Item, out T) error {
 	var (
-		record = Record[Relationship]{}
+		record = Record[Relationship[Data]]{}
 		err    = attributevalue.UnmarshalMap(item, &record)
 	)
 
 	if err == nil {
-		err = out.UnmarshalEdge(
+		err = out.UnmarshalRelationship(
 			record.Data.Relationship,
 			record.Data.StartEntityID,
 			record.Data.EndEntityID,
@@ -140,37 +148,37 @@ func UnmarshalRelationship[V RelationshipUnmarshaler](item ezddb.Item, out Relat
 // and is queried on node A. In order to query the reverse edge B -> A,
 // Graph uses the reverse lookup index on node B.
 type Graph struct {
-	Table[Relationship]
+	Table[Relationship[Data]]
 }
 
 // New creates a new [Graph] client.
-func New(tableName string, opts ...func(*Options)) Graph {
+func New(tableName string, opts ...func(*TableOptions)) Graph {
 	return Graph{
-		Table: NewTable[Relationship](tableName, opts...),
+		Table: NewTable[Relationship[Data]](tableName, opts...),
 	}
 }
 
-// AddEntity adds a new identity [Relationship] associated with the target [Entity] to the table.
-func (g Graph) AddEntity(e Entity, opts ...func(*Options)) operation.Put {
-	g.options.apply(opts)
+// AddEntity adds a new identity [Relationship] associated with the target [Data] to the table.
+func (g Graph) AddEntity(e Data, opts ...func(*TableOptions)) operation.Put {
+	g.Options.apply(opts)
 	return g.Put(newIdentityRelationship(e))
 }
 
-// GetEntity retrieves the identity [Relationship] associated with the target [Entity] id.
-func (g Graph) GetEntity(v Entity, opts ...func(*Options)) operation.Get {
-	g.options.apply(opts)
-	return g.Get(newIdentityRelationship(v))
+// GetEntity retrieves the identity [Relationship] associated with the target [Data] id.
+func (g Graph) GetEntity(e Data, opts ...func(*TableOptions)) operation.Get {
+	g.Options.apply(opts)
+	return g.Get(newIdentityRelationship(e))
 }
 
-// GetRelationship retrieves the [Relationship] between the start and end [Entity] nodes.
-func (g Graph) GetRelationship(start, end Entity, opts ...func(*Options)) operation.Get {
-	g.options.apply(opts)
-	return g.Get(newRelationship(start, end, ""))
+// GetRelationship retrieves the [Relationship] between the start and end [Data] nodes.
+func (g Graph) GetRelationship(start, end Data, opts ...func(*TableOptions)) operation.Get {
+	g.Options.apply(opts)
+	return g.Get(newRelationship(start, end, "", ""))
 }
 
-// DeleteEntity removes the identity [Relationship] associated with the target [Entity].
-func (g Graph) DeleteEntity(v Entity, opts ...func(*Options)) operation.Delete {
-	g.options.apply(opts)
+// DeleteEntity removes the identity [Relationship] associated with the target [Data].
+func (g Graph) DeleteEntity(v Data, opts ...func(*TableOptions)) operation.Delete {
+	g.Options.apply(opts)
 	return g.Delete(newIdentityRelationship(v))
 }
 
@@ -178,7 +186,7 @@ func (g Graph) DeleteEntity(v Entity, opts ...func(*Options)) operation.Delete {
 // within the [Graph] table.
 type ListEntitiesQuery struct {
 	QueryOptions
-	Options []func(*Options)
+	Options []func(*TableOptions)
 }
 
 // ListEntities searches for and returns a list entities of the same entity type within the [Graph].
@@ -192,11 +200,12 @@ func (g Graph) ListEntities(itemType string, opts ...func(ListEntitiesQuery)) op
 	return g.Query(CollectionQuery{QueryOptions: query.QueryOptions}, query.Options...)
 }
 
-// EntityWithRelationships provides methods for defining the relationships an [Entity]
+// EntityWithRelationships provides methods for defining the relationships an [Data]
 // has with other entities.
 type EntityWithRelationships interface {
-	Entity
+	Data
 	// DynamoRelationships returns the list of relationship names defined by an [Entity].
+	// For example, a Customer -> Order one-to-many relationship could have the name "orders".
 	DynamoRelationships() []string
 	// DynamoIsReverseRelationship returns true if the relationship associated with the
 	// specified name is stored on the "end" side of the relationship. Reverse relationships
@@ -206,21 +215,39 @@ type EntityWithRelationships interface {
 	// field set to true.
 	DynamoIsReverseRelationship(name string) bool
 	// DynamoGetRelationship returns the list of entities that comprise the specified relationship.
-	DynamoGetRelationship(name string) []Entity
+	DynamoGetRelationship(name string) []Data
+	// DynamoGetRelationshipSortKey returns the common sort key that is used for the target
+	// relationship. Bi-directional relationships should share the same sort key:
+	//
+	//	// DynamoItemType() = "customer"
+	//	// DynamoIsReverseRelationship("orders") = true
+	//	// DynamoGetRelationshipSortKey("orders") = "customer/orders"
+	//	type Customer struct { Orders []*Order }
+	//
+	//	// DynamoItemType() = "order"
+	//	// DynamoIsReverseRelationship("customer") = false
+	//	// DynamoGetRelationshipSortKey("customer") = "customer/orders"
+	//	type Order struct { Customer *Customer }
+	//
+	// This ensures that the target relationship is stored consistently.
+	DynamoGetRelationshipSortKey(name string) string
 }
 
 // AddRelationships adds the relationships defined by the target [EntityWithRelationships].
-func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*Options)) operation.BatchWriteItemCollection {
-	g.options.apply(opts)
+func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*TableOptions)) operation.BatchWriteItemCollection {
+	g.Options.apply(opts)
 	collection := make(operation.BatchWriteItemCollection, 0)
 	for _, name := range e.DynamoRelationships() {
-		entities := e.DynamoGetRelationship(name)
-		for _, entity := range entities {
-			var relationship Relationship
+		var (
+			entities       = e.DynamoGetRelationship(name)
+			relationshipSK = e.DynamoGetRelationshipSortKey(name)
+		)
+		for _, ref := range entities {
+			var relationship Relationship[Data]
 			if e.DynamoIsReverseRelationship(name) {
-				relationship = newRelationship(e, entity, name)
+				relationship = newReverseRelationship(e, ref, name, relationshipSK)
 			} else {
-				relationship = newRelationship(entity, e, name)
+				relationship = newRelationship(e, ref, name, relationshipSK)
 			}
 			collection = append(collection, g.Put(relationship))
 		}
@@ -230,20 +257,21 @@ func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*Options
 }
 
 // DeleteRelationship removes the [Relationship] items associated with the target name.
-func (g Graph) DeleteRelationships(e EntityWithRelationships, name string, opts ...func(*Options)) operation.BatchWriteItemCollection {
-	g.options.apply(opts)
+func (g Graph) DeleteRelationships(e EntityWithRelationships, name string, opts ...func(*TableOptions)) operation.BatchWriteItemCollection {
+	g.Options.apply(opts)
 	var (
 		refs    = e.DynamoGetRelationship(name)
 		reverse = e.DynamoIsReverseRelationship(name)
+		sortKey = e.DynamoGetRelationshipSortKey(name)
 		batch   = make(operation.BatchWriteItemCollection, 0, len(refs))
 	)
 
 	for _, r := range refs {
-		var ref Relationship
+		var ref Relationship[Data]
 		if reverse {
-			ref = newRelationship(r, e, name)
+			ref = newReverseRelationship(e, r, name, sortKey)
 		} else {
-			ref = newRelationship(e, r, name)
+			ref = newRelationship(e, r, name, sortKey)
 		}
 		batch = append(batch, g.Delete(ref))
 	}
@@ -256,7 +284,7 @@ type ListRelationshipsQuery struct {
 	QueryOptions
 	Reverse      bool   // If true, performs a reverse lookup on the target entity.
 	Relationship string // The target relationship name. A zero value will return all relationships.
-	Options      []func(*Options)
+	Options      []func(*TableOptions)
 }
 
 // ListRelationships generates a query that searches for relationships formed by the specified [EntityWithRelationships].
@@ -276,17 +304,19 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRel
 
 	var (
 		node     = Marshal(newIdentityRelationship(e))
-		edge     = Marshal(newRelationship(e, e, query.Relationship))
 		strategy QueryStrategy
 	)
 
 	if query.Reverse {
 		lookup := ReverseLookupQuery{QueryOptions: query.QueryOptions}
 		lookup.PartitionKeyValue = node.SK
-		lookup.SortKeyPrefix = edge.GSI1SK
+		if query.Relationship != "" {
+			lookup.SortKeyPrefix = e.DynamoGetRelationshipSortKey(query.Relationship)
+		}
 		strategy = lookup
 	} else {
 		lookup := LookupQuery{QueryOptions: query.QueryOptions}
+		lookup.PartitionKeyValue = node.HK
 		if query.Relationship != "" {
 			lookup.Filter = lookup.Filter.And(
 				filter.HasSubstring(
@@ -299,4 +329,9 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRel
 	}
 
 	return g.Query(strategy, query.Options...)
+}
+
+// DataFilter returns a [Filter] that runs conditions on the embedded [Entity]
+func (Graph) DataFilter(name string) Filter {
+	return Filter("data.value." + name)
 }

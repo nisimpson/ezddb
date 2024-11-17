@@ -146,8 +146,9 @@ func (m modifierGroup[T]) Join() modifier[T] {
 func newModiferGroup[T any, U any](items []U, mapper func(context.Context, *T, U) error) modifierGroup[T] {
 	group := make(modifierGroup[T], 0, len(items))
 	for _, item := range items {
+		i := item
 		group = append(group, func(ctx context.Context, t *T) error {
-			return mapper(ctx, t, item)
+			return mapper(ctx, t, i)
 		})
 	}
 	return group

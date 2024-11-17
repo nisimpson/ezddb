@@ -34,7 +34,7 @@ func (c BatchWriteItemCollection) Join() []BatchWriteItem {
 	ops := make([]BatchWriteItem, 0, len(batches))
 	for _, batch := range batches {
 		op := newBatchWriteOperation()
-		op.Modify(batch...)
+		op = op.Modify(batch...)
 		ops = append(ops, op)
 	}
 	return ops
@@ -84,8 +84,12 @@ func (BatchWriteItemCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutp
 	output := &dynamodb.BatchWriteItemOutput{
 		ItemCollectionMetrics: make(map[string][]types.ItemCollectionMetrics),
 		UnprocessedItems:      make(map[string][]types.WriteRequest),
+		ConsumedCapacity:      make([]types.ConsumedCapacity, 0),
 	}
 	for _, item := range items {
+		if item == nil {
+			continue
+		}
 		output.ConsumedCapacity = append(output.ConsumedCapacity, item.ConsumedCapacity...)
 		for k, v := range item.ItemCollectionMetrics {
 			output.ItemCollectionMetrics[k] = append(output.ItemCollectionMetrics[k], v...)

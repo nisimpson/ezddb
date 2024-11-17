@@ -77,7 +77,7 @@ func (p Put) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.Batc
 	if put, err := p.Invoke(ctx); err != nil {
 		return err
 	} else if put.TableName == nil {
-		return fmt.Errorf("put Operation has empty table name; cannot creat batch Operation")
+		return fmt.Errorf("put Operation has empty table name; cannot create batch Operation")
 	} else if requests, ok := input.RequestItems[*put.TableName]; !ok {
 		input.RequestItems[*put.TableName] = []types.WriteRequest{
 			{
