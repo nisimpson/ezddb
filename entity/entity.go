@@ -1,25 +1,11 @@
 package entity
 
 import (
-	"strings"
-
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
 )
-
-type NodeAttribute string
-
-func (a NodeAttribute) FilterAttribute() filter.Attribute {
-	return filter.AttributeOf("data", "node", string(a))
-}
-
-func (a NodeAttribute) ExpressionName() expression.NameBuilder {
-	name := strings.Join([]string{"data", "node", string(a)}, ".")
-	return expression.Name(name)
-}
 
 // Relationship is formed between two [Entity] nodes together in a single direction,
 // storing the start and end entity ids. Relationships between entities can
@@ -27,9 +13,9 @@ func (a NodeAttribute) ExpressionName() expression.NameBuilder {
 // -- an "identity" relationship -- stores the target Entity info.
 type Relationship struct {
 	Entity
-	StartEntityID string `dynamodbav:"startEntityID"` // The id of the starting Entity.
-	EndEntityID   string `dynamodbav:"endEntityID"`   // The id of the ending Entity.
-	Relationship  string `dynamodbav:"relationship"`  // The relationship between the two vertices.
+	StartEntityID string `dynamodbav:"gStartId"`      // The id of the starting Entity.
+	EndEntityID   string `dynamodbav:"gEndId"`        // The id of the ending Entity.
+	Relationship  string `dynamodbav:"gRelationship"` // The relationship between the two vertices.
 
 	// The edge item type, which is equivalent to the Entity type
 	// for identity edges, or a constant value labeled "edge" otherwise.
@@ -38,6 +24,12 @@ type Relationship struct {
 	endEntityType   string // The ending Entity type.
 	isNode          bool   // true if the edge is an identity edge, or Entity node.
 }
+
+const (
+	FilterRelationship  = Filter("data.gRelationship")
+	FilterStartEntityID = Filter("data.gStartId")
+	FilterEndEntityID   = Filter("data.gEndId")
+)
 
 func newIdentityRelationship(e Entity) Relationship {
 	edge := newRelationship(e, e, "")
@@ -185,19 +177,19 @@ func (g Graph) DeleteEntity(v Entity, opts ...func(*Options)) operation.Delete {
 // ListEntitiesQuery contains options for searching through the list of entities
 // within the [Graph] table.
 type ListEntitiesQuery struct {
-	CollectionQuery
+	QueryOptions
 	Options []func(*Options)
 }
 
 // ListEntities searches for and returns a list entities of the same entity type within the [Graph].
 // Modify or extend the query options using a [ListEntitiesQuery] function.
-func (g Graph) ListEntities(v Entity, opts ...func(ListEntitiesQuery)) operation.Query {
+func (g Graph) ListEntities(itemType string, opts ...func(ListEntitiesQuery)) operation.Query {
 	query := ListEntitiesQuery{}
-	query.ItemType = v.DynamoItemType()
+	query.PartitionKeyValue = itemType
 	for _, o := range opts {
 		o(query)
 	}
-	return g.Query(query.CollectionQuery, query.Options...)
+	return g.Query(CollectionQuery{QueryOptions: query.QueryOptions}, query.Options...)
 }
 
 // EntityWithRelationships provides methods for defining the relationships an [Entity]
@@ -261,13 +253,10 @@ func (g Graph) DeleteRelationships(e EntityWithRelationships, name string, opts 
 
 // ListRelationshipsQuery contains options for listing an entity's relationships.
 type ListRelationshipsQuery struct {
-	Reverse          bool                        // If true, performs a reverse lookup on the target entity.
-	Relationship     string                      // The relationship name. The zero value will return all identity relationships.
-	Filter           expression.ConditionBuilder // A filter condition to apply to the query.
-	StartKeyProvider ezddb.StartKeyProvider      // The start key provider used for pagination.
-	Cursor           string                      // The last pagination cursor token.
-	Limit            int                         // The number of items to return.
-	Options          []func(*Options)
+	QueryOptions
+	Reverse      bool   // If true, performs a reverse lookup on the target entity.
+	Relationship string // The target relationship name. A zero value will return all relationships.
+	Options      []func(*Options)
 }
 
 // ListRelationships generates a query that searches for relationships formed by the specified [EntityWithRelationships].
@@ -275,7 +264,9 @@ type ListRelationshipsQuery struct {
 func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRelationshipsQuery)) operation.Query {
 	var (
 		query = ListRelationshipsQuery{
-			Filter: filter.Exists(FilterHK).Condition(), // something that is always true
+			QueryOptions: QueryOptions{
+				Filter: filter.Exists(FilterHK.Attribute()).Condition(), // something that is always true
+			},
 		}
 	)
 
@@ -290,26 +281,18 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRel
 	)
 
 	if query.Reverse {
-		strategy = ReverseLookupQuery{
-			SortKeyValue:      node.SK,
-			GSI1SortKeyPrefix: edge.GSI1SK,
-			Filter:            query.Filter,
-			StartKeyProvider:  query.StartKeyProvider,
-			Cursor:            query.Cursor,
-			Limit:             query.Limit,
-		}
+		lookup := ReverseLookupQuery{QueryOptions: query.QueryOptions}
+		lookup.PartitionKeyValue = node.SK
+		lookup.SortKeyPrefix = edge.GSI1SK
+		strategy = lookup
 	} else {
-		lookup := LookupQuery{
-			PartitionKeyValue: node.HK,
-			Filter:            query.Filter,
-			StartKeyProvider:  query.StartKeyProvider,
-			Cursor:            query.Cursor,
-			Limit:             query.Limit,
-		}
+		lookup := LookupQuery{QueryOptions: query.QueryOptions}
 		if query.Relationship != "" {
-			attribute := filter.AttributeOf("data", "relationship")
 			lookup.Filter = lookup.Filter.And(
-				filter.HasSubstring(attribute, query.Relationship).Condition(),
+				filter.HasSubstring(
+					FilterRelationship.Attribute(),
+					query.Relationship).
+					Condition(),
 			)
 		}
 		strategy = lookup

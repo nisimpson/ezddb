@@ -22,23 +22,27 @@ const (
 	AttributeNameHK                   = "hk"
 	AttributeNameSK                   = "sk"
 	AttributeNameItemType             = "itemType"
-	AttributeNameCollectionSortKey    = "gsi2sk"
-	AttributeNameReverseLookupSortKey = "gsi1sk"
+	AttributeNameCollectionSortKey    = "gsi2Sk"
+	AttributeNameReverseLookupSortKey = "gsi1Sk"
 	AttributeNameData                 = "data"
 	AttributeNameCreatedAt            = "createdAt"
 	AttributeNameUpdatedAt            = "updatedAt"
 	AttributeNameExpires              = "expires"
 )
 
-var (
-	FilterHK            = filter.AttributeOf(AttributeNameHK)
-	FilterSK            = filter.AttributeOf(AttributeNameSK)
-	FilterCreatedAt     = filter.AttributeOf(AttributeNameCreatedAt)
-	FilterUpdatedAt     = filter.AttributeOf(AttributeNameUpdatedAt)
-	FilterExpires       = filter.AttributeOf(AttributeNameExpires)
-	FilterItemType      = filter.AttributeOf(AttributeNameItemType)
-	FilterCollection    = filter.AttributeOf(AttributeNameCollectionSortKey)
-	FilterReverseLookup = filter.AttributeOf(AttributeNameReverseLookupSortKey)
+type Filter string
+
+func (f Filter) Attribute() filter.Attribute { return filter.AttributeOf(string(f)) }
+
+const (
+	FilterHK            = Filter(AttributeNameHK)
+	FilterSK            = Filter(AttributeNameSK)
+	FilterCreatedAt     = Filter(AttributeNameCreatedAt)
+	FilterUpdatedAt     = Filter(AttributeNameUpdatedAt)
+	FilterExpires       = Filter(AttributeNameExpires)
+	FilterItemType      = Filter(AttributeNameItemType)
+	FilterCollection    = Filter(AttributeNameCollectionSortKey)
+	FilterReverseLookup = Filter(AttributeNameReverseLookupSortKey)
 )
 
 // Entity2 represents a singular "thing" within an entity-relationship model.
@@ -55,8 +59,8 @@ type Record[T Entity] struct {
 	HK        string    `dynamodbav:"hk"`
 	SK        string    `dynamodbav:"sk"`
 	ItemType  string    `dynamodbav:"itemType"`
-	GSI1SK    string    `dynamodbav:"gsi1sk,omitempty"`
-	GSI2SK    string    `dynamodbav:"gsi2sk,omitempty"`
+	GSI1SK    string    `dynamodbav:"gsi1Sk,omitempty"`
+	GSI2SK    string    `dynamodbav:"gsi2Sk,omitempty"`
 	CreatedAt time.Time `dynamodbav:"createdAt"`
 	UpdatedAt time.Time `dynamodbav:"updatedAt"`
 	Expires   time.Time `dynamodbav:"expires,unixtime"`
@@ -78,6 +82,7 @@ type MarshalOptions struct {
 	HashKeyPrefix          string
 	SortKeyPrefix          string
 	Delimiter              string
+	ItemType               string
 	SupportReverseLookup   bool
 	SupportCollectionQuery bool
 	ReverseLookupSortKey   string
@@ -91,6 +96,7 @@ func Marshal[T Entity](data T, opts ...func(*MarshalOptions)) Record[T] {
 		HashKeyPrefix: data.DynamoItemType(),
 		SortKeyID:     data.DynamoID(),
 		SortKeyPrefix: data.DynamoItemType(),
+		ItemType:      data.DynamoItemType(),
 		Tick:          time.Now,
 	}
 
@@ -107,7 +113,7 @@ func Marshal[T Entity](data T, opts ...func(*MarshalOptions)) Record[T] {
 	record := Record[T]{
 		HK:        options.HashKeyPrefix + DefaultDelimiter + options.HashKeyID,
 		SK:        options.SortKeyPrefix + DefaultDelimiter + options.SortKeyID,
-		ItemType:  data.DynamoItemType(),
+		ItemType:  options.ItemType,
 		Data:      &data,
 		Expires:   options.ExpirationDate,
 		CreatedAt: ts,
@@ -366,20 +372,39 @@ func (t Table[T]) Unmarshal(item ezddb.Item, opts ...func(*Options)) (Record[T],
 	return record, err
 }
 
+type QueryOptions struct {
+	// The target partition key value. The target attribute depends on the GSI or table
+	// queried:
+	//	table -> "hk"
+	//	gsi1 (reverse-lookup) -> "sk"
+	//	gsi2 (collection) ->  "itemtype"
+	PartitionKeyValue string
+	// The target sort key prefix, used to narrow down queries. The target attribute depends
+	// on the GSI or table queried:
+	//	table -> "sk"
+	//	gsi1 (reverse-lookup) -> "gsi1Sk"
+	// 	gsi2 (collection) -> "gsi2Sk"
+	SortKeyPrefix string
+	// The upper limit date filter, or latest creation date. Only used by collection index queries.
+	CreatedBefore time.Time
+	// The lower limit date filter, or earliest creation date. Only used by collection index queries.
+	CreatedAfter time.Time
+
+	Filter           expression.ConditionBuilder // A filter condition to apply to the query.
+	StartKeyProvider ezddb.StartKeyProvider      // The start key provider used for pagination.
+	Cursor           string                      // The last pagination cursor token.
+	Limit            int                         // The number of items to return.
+}
+
 type ReverseLookupQuery struct {
-	SortKeyValue      string
-	GSI1SortKeyPrefix string
-	Filter            expression.ConditionBuilder
-	StartKeyProvider  ezddb.StartKeyProvider
-	Cursor            string
-	Limit             int
+	QueryOptions
 }
 
 func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
-	keyCondition := sortKeyEquals(q.SortKeyValue)
-	if q.GSI1SortKeyPrefix != "" {
-		keyCondition = keyCondition.And(reverseLookupSortKeyStartsWith(q.GSI1SortKeyPrefix))
+	keyCondition := sortKeyEquals(q.PartitionKeyValue)
+	if q.SortKeyPrefix != "" {
+		keyCondition = keyCondition.And(reverseLookupSortKeyStartsWith(q.SortKeyPrefix))
 	}
 	if q.Filter.IsSet() {
 		builder = builder.WithCondition(q.Filter)
@@ -400,13 +425,7 @@ func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Q
 }
 
 type CollectionQuery struct {
-	ItemType         string
-	CreatedBefore    time.Time
-	CreatedAfter     time.Time
-	Filter           expression.ConditionBuilder
-	StartKeyProvider ezddb.StartKeyProvider
-	Cursor           string
-	Limit            int
+	QueryOptions
 }
 
 func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Query {
@@ -419,7 +438,7 @@ func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Quer
 	}
 	// apply the key condition
 	builder = builder.WithKeyCondition(
-		itemTypeEquals(q.ItemType).And(collectionSortKeyBetweenDates(
+		itemTypeEquals(q.PartitionKeyValue).And(collectionSortKeyBetweenDates(
 			q.CreatedAfter,
 			q.CreatedBefore,
 		)))
@@ -443,12 +462,7 @@ func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Quer
 }
 
 type LookupQuery struct {
-	PartitionKeyValue string
-	SortKeyPrefix     string
-	StartKeyProvider  ezddb.StartKeyProvider
-	Filter            expression.ConditionBuilder
-	Cursor            string
-	Limit             int
+	QueryOptions
 }
 
 func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
