@@ -231,7 +231,7 @@ func (f fixture) runInteg(t *testing.T, fn func(*testing.T, *dynamodb.Client, en
 
 func (fixture) GenerateID(ctx context.Context) string { return ulid.Make().String() }
 
-func TestGraphPutEntity(t *testing.T) {
+func TestGraphIntegration(t *testing.T) {
 	fixture := fixture{}
 	fixture.runInteg(t, func(t *testing.T, client *dynamodb.Client, graph entity.Graph) {
 		t.Run("put customer", func(t *testing.T) {
@@ -261,12 +261,7 @@ func TestGraphPutEntity(t *testing.T) {
 				t.Errorf("failed to put entity, %v", err)
 			}
 		})
-	})
-}
 
-func TestGraphGetEntity(t *testing.T) {
-	fixture := fixture{}
-	fixture.runInteg(t, func(t *testing.T, client *dynamodb.Client, graph entity.Graph) {
 		t.Run("get customer", func(t *testing.T) {
 			customer := Customer{ID: "customer-1"}
 			got, err := graph.GetEntity(customer).Execute(context.TODO(), client)
@@ -289,12 +284,7 @@ func TestGraphGetEntity(t *testing.T) {
 				t.Errorf("failed to get entity, %v", err)
 			}
 		})
-	})
-}
 
-func TestGraphPutRelationships(t *testing.T) {
-	fixture := fixture{}
-	fixture.runInteg(t, func(t *testing.T, client *dynamodb.Client, graph entity.Graph) {
 		t.Run("put relationships", func(t *testing.T) {
 			customer := Customer{
 				ID: "customer-1",
@@ -320,6 +310,20 @@ func TestGraphPutRelationships(t *testing.T) {
 				t.Errorf("failed to put entity, %v", err)
 			}
 			assert.NotNil(t, got)
+		})
+
+		t.Run("get relationships", func(t *testing.T) {
+			customer := Customer{ID: "customer-1"}
+			got, err := graph.ListRelationships(customer, func(lrq *entity.ListRelationshipsQuery) {
+				lrq.Reverse = true
+				lrq.Relationship = "orders"
+			}).Execute(context.TODO(), client)
+			if err != nil {
+				t.Errorf("failed to get entity, %v", err)
+				return
+			}
+			assert.NotNil(t, got)
+			assert.Len(t, got, 2)
 		})
 	})
 }

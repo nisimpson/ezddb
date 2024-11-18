@@ -191,11 +191,11 @@ type ListEntitiesQuery struct {
 
 // ListEntities searches for and returns a list entities of the same entity type within the [Graph].
 // Modify or extend the query options using a [ListEntitiesQuery] function.
-func (g Graph) ListEntities(itemType string, opts ...func(ListEntitiesQuery)) operation.Query {
+func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) operation.Query {
 	query := ListEntitiesQuery{}
 	query.PartitionKeyValue = itemType
 	for _, o := range opts {
-		o(query)
+		o(&query)
 	}
 	return g.Query(CollectionQuery{QueryOptions: query.QueryOptions}, query.Options...)
 }
@@ -289,7 +289,7 @@ type ListRelationshipsQuery struct {
 
 // ListRelationships generates a query that searches for relationships formed by the specified [EntityWithRelationships].
 // Modify or extend the query options with a [ListRelationshipsQuery] modifier.
-func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRelationshipsQuery)) operation.Query {
+func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRelationshipsQuery)) operation.Query {
 	var (
 		query = ListRelationshipsQuery{
 			QueryOptions: QueryOptions{
@@ -299,7 +299,7 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(ListRel
 	)
 
 	for _, o := range opts {
-		o(query)
+		o(&query)
 	}
 
 	var (
