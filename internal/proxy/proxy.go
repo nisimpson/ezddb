@@ -33,7 +33,7 @@ type GobEncoderDecoder interface {
 type gobProxy struct{}
 
 func (p gobProxy) Encode(e *gob.Encoder, value any) error {
-	return e.Encode(e)
+	return e.Encode(value)
 }
 
 func (p gobProxy) Decode(d *gob.Decoder, value any) error {

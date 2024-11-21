@@ -1,7 +1,10 @@
 package entity
 
 import (
+	"strings"
+
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
@@ -171,8 +174,11 @@ func (g Graph) GetEntity(e Data, opts ...func(*TableOptions)) operation.Get {
 }
 
 // GetRelationship retrieves the [Relationship] between the start and end [Data] nodes.
-func (g Graph) GetRelationship(start, end Data, opts ...func(*TableOptions)) operation.Get {
+func (g Graph) GetRelationship(start EntityWithRelationships, end Data, name string, opts ...func(*TableOptions)) operation.Get {
 	g.Options.apply(opts)
+	if start.DynamoIsReverseRelationship(name) {
+		return g.Get(newReverseRelationship(start, end, "", ""))
+	}
 	return g.Get(newRelationship(start, end, "", ""))
 }
 
@@ -194,6 +200,8 @@ type ListEntitiesQuery struct {
 func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) operation.Query {
 	query := ListEntitiesQuery{}
 	query.PartitionKeyValue = itemType
+	query.Filter = filter.Identity().Condition()
+
 	for _, o := range opts {
 		o(&query)
 	}
@@ -217,16 +225,16 @@ type EntityWithRelationships interface {
 	// DynamoGetRelationship returns the list of entities that comprise the specified relationship.
 	DynamoGetRelationship(name string) []Data
 	// DynamoGetRelationshipSortKey returns the common sort key that is used for the target
-	// relationship. Bi-directional relationships should share the same sort key:
+	// relationship. Bi-directional relationships should share the same relationship and sort key:
 	//
 	//	// DynamoItemType() = "customer"
-	//	// DynamoIsReverseRelationship("orders") = true
-	//	// DynamoGetRelationshipSortKey("orders") = "customer/orders"
+	//	// DynamoIsReverseRelationship("customer-order") = true
+	//	// DynamoGetRelationshipSortKey("customer-order") = "customer/orders"
 	//	type Customer struct { Orders []*Order }
 	//
 	//	// DynamoItemType() = "order"
-	//	// DynamoIsReverseRelationship("customer") = false
-	//	// DynamoGetRelationshipSortKey("customer") = "customer/orders"
+	//	// DynamoIsReverseRelationship("customer-order") = false
+	//	// DynamoGetRelationshipSortKey("customer-order") = "customer/orders"
 	//	type Order struct { Customer *Customer }
 	//
 	// This ensures that the target relationship is stored consistently.
@@ -257,7 +265,7 @@ func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*TableOp
 }
 
 // DeleteRelationship removes the [Relationship] items associated with the target name.
-func (g Graph) DeleteRelationships(e EntityWithRelationships, name string, opts ...func(*TableOptions)) operation.BatchWriteItemCollection {
+func (g Graph) DeleteRelationship(e EntityWithRelationships, name string, opts ...func(*TableOptions)) operation.BatchWriteItemCollection {
 	g.Options.apply(opts)
 	var (
 		refs    = e.DynamoGetRelationship(name)
@@ -291,9 +299,14 @@ type ListRelationshipsQuery struct {
 // Modify or extend the query options with a [ListRelationshipsQuery] modifier.
 func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRelationshipsQuery)) operation.Query {
 	var (
+		node     = Marshal(newIdentityRelationship(e))
+		strategy QueryStrategy
+	)
+
+	var (
 		query = ListRelationshipsQuery{
 			QueryOptions: QueryOptions{
-				Filter: filter.Exists(FilterHK.Attribute()).Condition(), // something that is always true
+				Filter: filter.Identity().Condition(),
 			},
 		}
 	)
@@ -301,11 +314,6 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRe
 	for _, o := range opts {
 		o(&query)
 	}
-
-	var (
-		node     = Marshal(newIdentityRelationship(e))
-		strategy QueryStrategy
-	)
 
 	if query.Reverse {
 		lookup := ReverseLookupQuery{QueryOptions: query.QueryOptions}
@@ -332,6 +340,6 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRe
 }
 
 // DataFilter returns a [Filter] that runs conditions on the embedded [Entity]
-func (Graph) DataFilter(name string) Filter {
-	return Filter("data.value." + name)
+func (Graph) DataFilter(name string) expression.NameBuilder {
+	return expression.Name(strings.Join([]string{"data", "value", name}, "."))
 }

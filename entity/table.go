@@ -1,9 +1,8 @@
 package entity
 
 import (
-	"bytes"
 	"context"
-	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -226,25 +225,23 @@ func (p Paginator) GetStartKey(ctx context.Context, token string) (ezddb.Item, e
 	)
 
 	out, err := table.Get(page{ID: token}).Execute(ctx, p.client)
-	if err != nil {
-		return nil, fmt.Errorf("get page record from token '%s': %w", token, err)
+	panicOnErr(err, "get page record from token '%s'", token)
+
+	if out.Item == nil {
+		// no start key found
+		return nil, nil
 	}
 
 	record, err := table.Unmarshal(out.Item)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal page record from token '%s': %w", token, err)
-	}
+	panicOnErr(err, "unmarshal page record from token '%s'", token)
 
 	var (
 		data = record.Data.StartKey
-		buf  = bytes.NewBuffer(data)
 		item = ezddb.Item{}
 	)
 
-	err = p.options.EncodeDecode.Decode(gob.NewDecoder(buf), &item)
-	if err != nil {
-		return nil, fmt.Errorf("decode page token '%s': %w", token, err)
-	}
+	err = json.Unmarshal(data, &item)
+	panicOnErr(err, "unmarshal page token '%s'", token)
 
 	return item, nil
 }
@@ -255,18 +252,15 @@ func (p Paginator) GetStartKeyToken(ctx context.Context, startKey map[string]typ
 		return "", nil
 	}
 
+	data, err := json.Marshal(startKey)
+	panicOnErr(err, "get start key: marshal")
+
 	var (
 		id    = p.options.IDGenerator.GenerateID(ctx)
 		table = newTable[page](p.options)
-		buf   = bytes.Buffer{}
 	)
 
-	err := p.options.EncodeDecode.Encode(gob.NewEncoder(&buf), startKey)
-	if err != nil {
-		return "", fmt.Errorf("get start key: encode: %w", err)
-	}
-
-	_, err = table.Put(page{ID: id, StartKey: buf.Bytes()}).Execute(ctx, p.client)
+	_, err = table.Put(page{ID: id, StartKey: data}).Execute(ctx, p.client)
 	return id, err
 }
 
@@ -278,10 +272,6 @@ func (t Table[T]) Put(data T, opts ...func(*TableOptions)) operation.Put {
 	t.Options.apply(opts)
 	record := Marshal(data, t.Options.MarshalOptions...)
 	item, err := t.Options.Marshaler.MarshalMap(record)
-	if err != nil {
-		err = fmt.Errorf("put func: marshal: %w", err)
-	}
-
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
 		return &dynamodb.PutItemInput{
 			TableName: &t.Options.TableName,
@@ -411,7 +401,7 @@ func (q ReverseLookupQuery) modify(op operation.Query, opts TableOptions) operat
 		keyCondition = keyCondition.And(reverseLookupSortKeyStartsWith(q.SortKeyPrefix))
 	}
 	if q.Filter.IsSet() {
-		builder = builder.WithCondition(q.Filter)
+		builder = builder.WithFilter(q.Filter)
 	}
 	builder = builder.WithKeyCondition(keyCondition)
 	op = op.Modify(
@@ -438,7 +428,7 @@ func (q CollectionQuery) modify(op operation.Query, opts TableOptions) operation
 	// we consider the zero values for the lower and upper date bounds to be
 	// the year 0001 and the current day, respectively.
 	if q.CreatedBefore.IsZero() {
-		q.CreatedBefore = opts.Tick().UTC()
+		q.CreatedBefore = opts.Tick().UTC().Add(1 * time.Hour)
 	}
 	// apply the key condition
 	builder = builder.WithKeyCondition(
@@ -448,7 +438,7 @@ func (q CollectionQuery) modify(op operation.Query, opts TableOptions) operation
 		)))
 	// apply the filter condition
 	if q.Filter.IsSet() {
-		builder = builder.WithCondition(q.Filter)
+		builder = builder.WithFilter(q.Filter)
 	}
 
 	op = op.Modify(
@@ -476,7 +466,7 @@ func (q LookupQuery) modify(op operation.Query, opts TableOptions) operation.Que
 		keyCondition = keyCondition.And(sortKeyStartsWith(q.SortKeyPrefix))
 	}
 	if q.Filter.IsSet() {
-		builder = builder.WithCondition(q.Filter)
+		builder = builder.WithFilter(q.Filter)
 	}
 	builder = builder.WithKeyCondition(keyCondition)
 	op = op.Modify(
@@ -518,4 +508,11 @@ func collectionSortKeyBetweenDates(start, end time.Time) expression.KeyCondition
 
 func updateTimestamp(ts time.Time) expression.UpdateBuilder {
 	return expression.Set(expression.Name(AttributeNameUpdatedAt), expression.Value(ts))
+}
+
+func panicOnErr(err error, msg string, args ...any) {
+	if err != nil {
+		msg := fmt.Sprintf(msg, args...)
+		panic(fmt.Errorf("%s: %w", msg, err))
+	}
 }

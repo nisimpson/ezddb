@@ -2,6 +2,7 @@ package entity_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb/entity"
@@ -24,10 +26,10 @@ type Customer struct {
 
 func (c Customer) DynamoID() string              { return c.ID }
 func (c Customer) DynamoItemType() string        { return "customer" }
-func (c Customer) DynamoRelationships() []string { return []string{"orders"} }
+func (c Customer) DynamoRelationships() []string { return []string{"customer-order"} }
 
 func (c Customer) DynamoGetRelationship(name string) []entity.Data {
-	if name == "order" {
+	if name == "customer-order" {
 		entities := make([]entity.Data, 0, len(c.Orders))
 		for _, order := range c.Orders {
 			entities = append(entities, order)
@@ -39,18 +41,18 @@ func (c Customer) DynamoGetRelationship(name string) []entity.Data {
 
 func (c Customer) DynamoIsReverseRelationship(name string) bool {
 	// customer -> order relationships are stored on the order partition.
-	return name == "orders"
+	return name == "customer-order"
 }
 
 func (c Customer) DynamoGetRelationshipSortKey(name string) string {
-	if name == "orders" {
+	if name == "customer-order" {
 		return "customer/orders"
 	}
 	return ""
 }
 
 func (c *Customer) UnmarshalRelationship(name string, startID, endID string) error {
-	if name == "order" {
+	if name == "customer-order" {
 		// reverse lookup -> order_id, customer_id
 		c.Orders = append(c.Orders, &Order{ID: startID, Customer: c})
 		return nil
@@ -60,15 +62,16 @@ func (c *Customer) UnmarshalRelationship(name string, startID, endID string) err
 
 type Order struct {
 	ID       string
+	Item     string
 	Customer *Customer `dynamodbav:"-"`
 }
 
 func (o Order) DynamoID() string              { return o.ID }
 func (o Order) DynamoItemType() string        { return "order" }
-func (o Order) DynamoRelationships() []string { return []string{"customer"} }
+func (o Order) DynamoRelationships() []string { return []string{"customer-order"} }
 
 func (o Order) DynamoGetRelationship(name string) []entity.Data {
-	if name == "customer" {
+	if name == "customer-order" {
 		return []entity.Data{o.Customer}
 	}
 	return nil
@@ -77,7 +80,7 @@ func (o Order) DynamoGetRelationship(name string) []entity.Data {
 func (o Order) DynamoGetRelationshipSortKey(name string) string {
 	// customer is the reverse lookup for customer -> order, so we want to ensure
 	// the sort keys are the same.
-	if name == "customer" {
+	if name == "customer-order" {
 		return "customer/orders"
 	}
 	return ""
@@ -85,11 +88,11 @@ func (o Order) DynamoGetRelationshipSortKey(name string) string {
 
 func (o Order) DynamoIsReverseRelationship(name string) bool {
 	// order -> customer relationships are stored on this partition.
-	return name != "customer"
+	return name != "customer-order"
 }
 
 func (o *Order) UnmarshalRelationship(name string, startID, endID string) error {
-	if name == "customer" {
+	if name == "customer-order" {
 		// forward lookup -> order_id, customer_id
 		o.Customer = &Customer{ID: endID}
 		return nil
@@ -226,6 +229,14 @@ func (f fixture) runInteg(t *testing.T, fn func(*testing.T, *dynamodb.Client, en
 		o.IDGenerator = f
 	})
 	f.createTable(t, client, graph)
+	t.Cleanup(func() {
+		_, err := client.DeleteTable(context.TODO(), &dynamodb.DeleteTableInput{
+			TableName: &graph.Options.TableName,
+		})
+		if err != nil {
+			t.Fatalf("failed to delete table, %v", err)
+		}
+	})
 	fn(t, client, graph)
 }
 
@@ -233,20 +244,19 @@ func (fixture) GenerateID(ctx context.Context) string { return ulid.Make().Strin
 
 func TestGraphIntegration(t *testing.T) {
 	fixture := fixture{}
-	fixture.runInteg(t, func(t *testing.T, client *dynamodb.Client, graph entity.Graph) {
+	fixture.runInteg(t, func(t *testing.T, client *dynamodb.Client, g entity.Graph) {
 		t.Run("put customer", func(t *testing.T) {
-			customer := Customer{
+			_, err := g.AddEntity(Customer{
 				ID:   "customer-1",
 				Name: "Bob",
 				Orders: []*Order{
 					{ID: "order-1"},
 					{ID: "order-2"},
 				},
-			}
-			_, err := graph.AddEntity(customer).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to put entity, %v", err)
-			}
+			}, func(to *entity.TableOptions) {
+				to.MarshalOptions = append(to.MarshalOptions, func(mo *entity.MarshalOptions) {})
+			}).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to put entity: %v", err)
 		})
 
 		t.Run("put order", func(t *testing.T) {
@@ -256,33 +266,25 @@ func TestGraphIntegration(t *testing.T) {
 					ID: "customer-2",
 				},
 			}
-			_, err := graph.AddEntity(order).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to put entity, %v", err)
-			}
+			_, err := g.AddEntity(order).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to put entity: %v", err)
 		})
 
 		t.Run("get customer", func(t *testing.T) {
 			customer := Customer{ID: "customer-1"}
-			got, err := graph.GetEntity(customer).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to get entity, %v", err)
-			}
+			got, err := g.GetEntity(customer).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to get entity: %v", err)
 
 			gotCustomer, err := entity.UnmarshalEntity[Customer](got.Item)
-			if err != nil {
-				t.Errorf("failed to unmarshal entity, %v", err)
-			}
+			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
 			assert.Equal(t, customer.ID, gotCustomer.ID)
 			assert.Equal(t, "Bob", gotCustomer.Name)
 		})
 
 		t.Run("get order", func(t *testing.T) {
 			order := Order{ID: "order-3"}
-			_, err := graph.GetEntity(order).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to get entity, %v", err)
-			}
+			_, err := g.GetEntity(order).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to get entity: %v", err)
 		})
 
 		t.Run("put relationships", func(t *testing.T) {
@@ -293,10 +295,8 @@ func TestGraphIntegration(t *testing.T) {
 					{ID: "order-2"},
 				},
 			}
-			got, err := graph.AddRelationships(customer).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to put entity, %v", err)
-			}
+			got, err := g.AddRelationships(customer).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to put entity: %v", err)
 			assert.NotNil(t, got)
 
 			order := Order{
@@ -305,25 +305,175 @@ func TestGraphIntegration(t *testing.T) {
 					ID: "customer-2",
 				},
 			}
-			got, err = graph.AddRelationships(order).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to put entity, %v", err)
-			}
+			got, err = g.AddRelationships(order).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to put entity: %v", err)
 			assert.NotNil(t, got)
 		})
 
-		t.Run("get relationships", func(t *testing.T) {
+		t.Run("get customer orders (list relationships)", func(t *testing.T) {
 			customer := Customer{ID: "customer-1"}
-			got, err := graph.ListRelationships(customer, func(lrq *entity.ListRelationshipsQuery) {
+			input, err := g.ListRelationships(customer, func(lrq *entity.ListRelationshipsQuery) {
 				lrq.Reverse = true
-				lrq.Relationship = "orders"
-			}).Execute(context.TODO(), client)
-			if err != nil {
-				t.Errorf("failed to get entity, %v", err)
-				return
+				lrq.Relationship = "customer-order"
+			}).Invoke(context.TODO())
+
+			assert.NoError(t, err, "failed to generate input: %v", err)
+			data, err := json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err := client.Query(context.TODO(), input)
+			assert.NoError(t, err, "failed to get entity: %v", err)
+			assert.NotNil(t, got.Items)
+
+			for _, item := range got.Items {
+				entity.UnmarshalRelationship(item, &customer)
 			}
-			assert.NotNil(t, got)
-			assert.Len(t, got, 2)
+
+			assert.Len(t, customer.Orders, 2)
+		})
+
+		t.Run("get customer order (get relationship)", func(t *testing.T) {
+			customer := Customer{ID: "customer-1"}
+			order := Order{ID: "order-1"}
+			input, err := g.GetRelationship(customer, order, "customer-order").Invoke(context.TODO())
+			assert.NoError(t, err)
+			data, err := json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err := client.GetItem(context.TODO(), input)
+			assert.NoError(t, err, "failed to get entity: %v", err)
+			assert.NotNil(t, got.Item)
+
+			err = entity.UnmarshalRelationship(got.Item, &customer)
+			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
+
+			assert.Len(t, customer.Orders, 1)
+			assert.Equal(t, "order-1", customer.Orders[0].ID)
+		})
+
+		t.Run("get order relationships", func(t *testing.T) {
+			order := Order{ID: "order-3"}
+			input, err := g.ListRelationships(order, func(lrq *entity.ListRelationshipsQuery) {
+				lrq.Relationship = "customer-order"
+			}).Invoke(context.TODO())
+
+			assert.NoError(t, err, "failed to generate input: %v", err)
+			data, err := json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err := client.Query(context.TODO(), input)
+			assert.NoError(t, err, "failed to get entity: %v", err)
+			assert.NotNil(t, got.Items)
+
+			for _, item := range got.Items {
+				entity.UnmarshalRelationship(item, &order)
+			}
+
+			assert.NotNil(t, order.Customer)
+			assert.Equal(t, "customer-2", order.Customer.ID)
+		})
+
+		t.Run("get order customer", func(t *testing.T) {
+			order := Order{ID: "order-3"}
+			input, err := g.GetRelationship(order, Customer{ID: "customer-2"}, "customer-order").Invoke(context.TODO())
+			assert.NoError(t, err)
+			data, err := json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err := client.GetItem(context.TODO(), input)
+			assert.NoError(t, err, "failed to get entity: %v", err)
+			assert.NotNil(t, got.Item)
+
+			err = entity.UnmarshalRelationship(got.Item, &order)
+			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
+
+			assert.NotNil(t, order.Customer)
+			assert.Equal(t, "customer-2", order.Customer.ID)
+		})
+
+		t.Run("list entities", func(t *testing.T) {
+			input, err := g.ListEntities("customer").Invoke(context.TODO())
+			assert.NoError(t, err, "failed to generate input: %v", err)
+			data, err := json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err := client.Query(context.TODO(), input)
+			assert.NoError(t, err, "failed to list entities: %v", err)
+			assert.NotNil(t, got, "result is nil")
+			assert.Len(t, got.Items, 1)
+
+			gotCustomer, err := entity.UnmarshalEntity[Customer](got.Items[0])
+			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
+			assert.Equal(t, "customer-1", gotCustomer.ID)
+
+			input, err = g.ListEntities("customer", func(leq *entity.ListEntitiesQuery) {
+				leq.Filter = leq.Filter.And(g.DataFilter("Name").Equal(expression.Value("Bob")))
+			}).Invoke(context.TODO())
+			assert.NoError(t, err)
+			data, err = json.MarshalIndent(input, "", " ")
+			assert.NoError(t, err)
+			t.Log(string(data))
+
+			got, err = client.Query(context.TODO(), input)
+			assert.NoError(t, err)
+			assert.NotNil(t, got, "result is nil")
+			assert.Len(t, got.Items, 1)
+		})
+
+		t.Run("delete customer relationship", func(t *testing.T) {
+			customer := Customer{
+				ID: "customer-1",
+				Orders: []*Order{
+					{ID: "order-1"},
+				},
+			}
+			_, err := g.DeleteRelationship(customer, "customer-order").Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to delete relationship: %v", err)
+		})
+
+		t.Run("delete order customer", func(t *testing.T) {
+			order := Order{
+				ID: "order-3",
+				Customer: &Customer{
+					ID: "customer-2",
+				},
+			}
+			_, err := g.DeleteRelationship(order, "customer-order").Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to delete relationship: %v", err)
+		})
+
+		t.Run("delete customer", func(t *testing.T) {
+			customer := Customer{ID: "customer-1"}
+			_, err := g.DeleteEntity(customer).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to delete entity: %v", err)
+		})
+
+		t.Run("pagination", func(t *testing.T) {
+			_, err := g.AddEntity(Customer{
+				ID:   "customer-2",
+				Name: "Jim",
+				Orders: []*Order{
+					{ID: "order-4"},
+					{ID: "order-5"},
+				},
+			}).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to put entity: %v", err)
+
+			paginator := g.Paginator(client)
+			items, err := g.ListEntities("customer", func(lrq *entity.ListEntitiesQuery) {
+				lrq.Limit = 1
+				lrq.StartKeyProvider = paginator
+			}).Execute(context.TODO(), client)
+			assert.NoError(t, err, "failed to list entities: %v", err)
+			assert.NotNil(t, items.LastEvaluatedKey)
+			cursor, err := paginator.GetStartKeyToken(context.TODO(), items.LastEvaluatedKey)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, cursor, "page cursor should not be empty")
 		})
 	})
 }

@@ -23,6 +23,7 @@ const (
 	OperationNotExists        operation = "!exists"
 	OperationBeginsWith       operation = "begins_with"
 	OperationIn               operation = "in"
+	OperationTrue             operation = "true"
 )
 
 type Attribute interface {
@@ -37,6 +38,10 @@ func AttributeOf(key ...string) Attribute {
 }
 
 func (a attribute) name() string { return string(a) }
+
+func Identity() Builder {
+	return newBuilder(unaryCriteria{Operation: OperationTrue})
+}
 
 func Equals[U any](a Attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
@@ -232,7 +237,7 @@ func (b binaryCriteria) condition() (cb expression.ConditionBuilder) {
 	if b.Operation == OperationContains {
 		return expression.Contains(
 			expression.Name(b.Attribute),
-			expression.Value(b.Value),
+			b.Value,
 		)
 	}
 	if b.Operation == OperationIn {
@@ -254,7 +259,7 @@ func (b binaryCriteria) condition() (cb expression.ConditionBuilder) {
 	}
 
 	expr, ok := comparableConditions[b.Operation]
-	if !ok {
+	if ok {
 		return expr(expression.Name(b.Attribute), expression.Value(b.Value))
 	}
 
@@ -279,7 +284,7 @@ func (b binaryCriteria) keyCondition() (cb expression.KeyConditionBuilder) {
 		)
 	}
 	expr, ok := comparableKeyConditions[b.Operation]
-	if !ok {
+	if ok {
 		return expr(expression.Key(b.Attribute), expression.Value(b.Value))
 	}
 
@@ -292,7 +297,7 @@ type unaryCriteria struct {
 }
 
 func (u unaryCriteria) String() string {
-	return fmt.Sprintf("%s('%s')", u.Attribute, u.Operation)
+	return fmt.Sprintf("%s('%s')", u.Operation, u.Attribute)
 }
 
 func (u unaryCriteria) condition() (cb expression.ConditionBuilder) {
@@ -302,10 +307,15 @@ func (u unaryCriteria) condition() (cb expression.ConditionBuilder) {
 	if u.Operation == OperationNotExists {
 		return expression.AttributeNotExists(expression.Name(u.Attribute))
 	}
+	if u.Operation == OperationTrue {
+		return expression.Equal(expression.Value(1), expression.Value(1))
+	}
 	return
 }
 
-func (u unaryCriteria) keyCondition() (cb expression.KeyConditionBuilder) { return }
+func (u unaryCriteria) keyCondition() (cb expression.KeyConditionBuilder) {
+	panic(fmt.Errorf("cannot generate key condition from unary criteria %s", u))
+}
 
 type betweenCriteria struct {
 	Attribute string
