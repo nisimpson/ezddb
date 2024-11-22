@@ -26,24 +26,26 @@ const (
 	OperationTrue             operation = "true"
 )
 
-type Attribute interface {
+type attribute interface {
 	name() string
 }
 
-type attribute string
+type Attribute string
+
+func (a Attribute) name() string                 { return string(a) }
+func (a Attribute) Key() expression.KeyBuilder   { return expression.Key(string(a)) }
+func (a Attribute) Name() expression.NameBuilder { return expression.Name(string(a)) }
 
 func AttributeOf(key ...string) Attribute {
 	path := strings.Join(key, ".")
-	return attribute(path)
+	return Attribute(path)
 }
-
-func (a attribute) name() string { return string(a) }
 
 func Identity() Builder {
 	return newBuilder(unaryCriteria{Operation: OperationTrue})
 }
 
-func Equals[U any](a Attribute, value U) Builder {
+func Equals[U any](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationEqual,
@@ -51,7 +53,7 @@ func Equals[U any](a Attribute, value U) Builder {
 	})
 }
 
-func NotEquals[U any](a Attribute, value U) Builder {
+func NotEquals[U any](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationNotEqual,
@@ -59,7 +61,7 @@ func NotEquals[U any](a Attribute, value U) Builder {
 	})
 }
 
-func LessThan[U comparable](a Attribute, value U) Builder {
+func LessThan[U comparable](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationLessThan,
@@ -67,7 +69,7 @@ func LessThan[U comparable](a Attribute, value U) Builder {
 	})
 }
 
-func LessThanEqual[U comparable](a Attribute, value U) Builder {
+func LessThanEqual[U comparable](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationLessThanEqual,
@@ -75,7 +77,7 @@ func LessThanEqual[U comparable](a Attribute, value U) Builder {
 	})
 }
 
-func GreaterThan[U comparable](a Attribute, value U) Builder {
+func GreaterThan[U comparable](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationGreaterThanEqual,
@@ -83,7 +85,7 @@ func GreaterThan[U comparable](a Attribute, value U) Builder {
 	})
 }
 
-func GreaterThanEqual[U comparable](a Attribute, value U) Builder {
+func GreaterThanEqual[U comparable](a attribute, value U) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationGreaterThanEqual,
@@ -105,7 +107,7 @@ func NotExists(a Attribute) Builder {
 	})
 }
 
-func HasSubstring(a Attribute, substr string) Builder {
+func HasSubstring(a attribute, substr string) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationContains,
@@ -113,7 +115,7 @@ func HasSubstring(a Attribute, substr string) Builder {
 	})
 }
 
-func Contains[U any](a Attribute, items ...U) Builder {
+func Contains[U any](a attribute, items ...U) Builder {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
@@ -132,7 +134,7 @@ func Contains[U any](a Attribute, items ...U) Builder {
 	return curr
 }
 
-func Intersects[U any](a Attribute, items ...U) Builder {
+func Intersects[U any](a attribute, items ...U) Builder {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
@@ -151,7 +153,7 @@ func Intersects[U any](a Attribute, items ...U) Builder {
 	return curr
 }
 
-func HasPrefix(a Attribute, prefix string) Builder {
+func HasPrefix(a attribute, prefix string) Builder {
 	return newBuilder(binaryCriteria{
 		Attribute: a.name(),
 		Operation: OperationBeginsWith,
@@ -159,7 +161,7 @@ func HasPrefix(a Attribute, prefix string) Builder {
 	})
 }
 
-func IsOneOf[U any](a Attribute, items ...U) Builder {
+func IsOneOf[U any](a attribute, items ...U) Builder {
 	anyitems := make([]any, 0, len(items))
 	for _, item := range items {
 		anyitems = append(anyitems, item)
@@ -171,7 +173,7 @@ func IsOneOf[U any](a Attribute, items ...U) Builder {
 	})
 }
 
-func IsBetween[U comparable](a Attribute, left U, right U) Builder {
+func IsBetween[U comparable](a attribute, left U, right U) Builder {
 	return newBuilder(betweenCriteria{
 		Attribute: a.name(),
 		Left:      left,
@@ -179,15 +181,15 @@ func IsBetween[U comparable](a Attribute, left U, right U) Builder {
 	})
 }
 
-func TimestampEquals(a Attribute, value time.Time) Builder {
+func TimestampEquals(a attribute, value time.Time) Builder {
 	return Equals(a, value.Format(time.RFC3339))
 }
 
-func TimestampBetween(a Attribute, start, end time.Time) Builder {
+func TimestampBetween(a attribute, start, end time.Time) Builder {
 	return IsBetween(a, start.Format(time.RFC3339), end.Format(time.RFC3339))
 }
 
-func ExpiresAfter(a Attribute, dt time.Time) Builder {
+func ExpiresAfter(a attribute, dt time.Time) Builder {
 	return LessThanEqual(a, dt.Unix())
 }
 

@@ -1,4 +1,4 @@
-package entity
+package table
 
 import (
 	"context"
@@ -29,31 +29,18 @@ const (
 	AttributeNameExpires              = "expires"
 )
 
-type Filter string
-
-func (f Filter) Attribute() filter.Attribute { return filter.AttributeOf(string(f)) }
-
-const (
-	FilterHK            = Filter(AttributeNameHK)
-	FilterSK            = Filter(AttributeNameSK)
-	FilterCreatedAt     = Filter(AttributeNameCreatedAt)
-	FilterUpdatedAt     = Filter(AttributeNameUpdatedAt)
-	FilterExpires       = Filter(AttributeNameExpires)
-	FilterItemType      = Filter(AttributeNameItemType)
-	FilterCollection    = Filter(AttributeNameCollectionSortKey)
-	FilterReverseLookup = Filter(AttributeNameReverseLookupSortKey)
+var (
+	AttributeHK            = filter.AttributeOf(AttributeNameHK)
+	AttributeSK            = filter.AttributeOf(AttributeNameSK)
+	AttributeCreatedAt     = filter.AttributeOf(AttributeNameCreatedAt)
+	AttributeUpdatedAt     = filter.AttributeOf(AttributeNameUpdatedAt)
+	AttributeExpires       = filter.AttributeOf(AttributeNameExpires)
+	AttributeItemType      = filter.AttributeOf(AttributeNameItemType)
+	AttributeCollection    = filter.AttributeOf(AttributeNameCollectionSortKey)
+	AttributeReverseLookup = filter.AttributeOf(AttributeNameReverseLookupSortKey)
 )
 
-// Data represents a singular "thing" within an entity-relationship model.
-// Data entities can form relationships with other entities; these associations
-// are stored within the dynamodb table as separate rows within the table.
-// Use the [Graph] client to perform CRUD operations on stored entities.
-type Data interface {
-	DynamoID() string
-	DynamoItemType() string
-}
-
-type Record[T Data] struct {
+type Record[T any] struct {
 	HK        string    `dynamodbav:"hk"`
 	SK        string    `dynamodbav:"sk"`
 	ItemType  string    `dynamodbav:"itemType"`
@@ -62,7 +49,7 @@ type Record[T Data] struct {
 	CreatedAt time.Time `dynamodbav:"createdAt"`
 	UpdatedAt time.Time `dynamodbav:"updatedAt"`
 	Expires   time.Time `dynamodbav:"expires,unixtime"`
-	Data      *T        `dynamodbav:"data"`
+	Data      T         `dynamodbav:"data"`
 }
 
 func (r Record[T]) Key() ezddb.Item {
@@ -89,24 +76,18 @@ type MarshalOptions struct {
 }
 
 type RecordMarshaler interface {
-	Data
 	DynamoMarshalRecord(*MarshalOptions)
 }
 
-func Marshal[T RecordMarshaler](data T, opts ...func(*MarshalOptions)) Record[T] {
+func MarshalRecord[T RecordMarshaler](data T, opts ...func(*MarshalOptions)) Record[T] {
 	options := MarshalOptions{
-		HashKeyID:     data.DynamoID(),
-		HashKeyPrefix: data.DynamoItemType(),
-		SortKeyID:     data.DynamoID(),
-		SortKeyPrefix: data.DynamoItemType(),
-		ItemType:      data.DynamoItemType(),
-		Tick:          time.Now,
+		Tick: time.Now,
 	}
 
 	// marshal data
 	data.DynamoMarshalRecord(&options)
 
-	// apply additional marshal options to override behavior
+	// Apply additional marshal options to override behavior
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -117,7 +98,7 @@ func Marshal[T RecordMarshaler](data T, opts ...func(*MarshalOptions)) Record[T]
 		HK:        options.HashKeyPrefix + DefaultDelimiter + options.HashKeyID,
 		SK:        options.SortKeyPrefix + DefaultDelimiter + options.SortKeyID,
 		ItemType:  options.ItemType,
-		Data:      &data,
+		Data:      data,
 		Expires:   options.ExpirationDate,
 		CreatedAt: ts,
 		UpdatedAt: ts,
@@ -142,7 +123,7 @@ type IDGenerator interface {
 	GenerateID(context.Context) string
 }
 
-type TableOptions struct {
+type Options struct {
 	TableName                string
 	ReverseLookupIndexName   string
 	CollectionQueryIndexName string
@@ -153,18 +134,18 @@ type TableOptions struct {
 	EncodeDecode             proxy.GobEncoderDecoder
 }
 
-func (o *TableOptions) apply(opts []func(*TableOptions)) {
+func (o *Options) Apply(opts []func(*Options)) {
 	for _, opt := range opts {
 		opt(o)
 	}
 }
 
 type Table[T RecordMarshaler] struct {
-	Options TableOptions
+	Options Options
 }
 
-func NewTable[T RecordMarshaler](tableName string, opts ...func(*TableOptions)) Table[T] {
-	options := TableOptions{
+func New[T RecordMarshaler](tableName string, opts ...func(*Options)) Table[T] {
+	options := Options{
 		TableName:                tableName,
 		ReverseLookupIndexName:   "reverse-lookup-index",
 		CollectionQueryIndexName: "collection-query-index",
@@ -173,11 +154,11 @@ func NewTable[T RecordMarshaler](tableName string, opts ...func(*TableOptions)) 
 		Marshaler:                proxy.Default,
 	}
 
-	options.apply(opts)
+	options.Apply(opts)
 	return newTable[T](options)
 }
 
-func newTable[T RecordMarshaler](options TableOptions) Table[T] {
+func newTable[T RecordMarshaler](options Options) Table[T] {
 	return Table[T]{Options: options}
 }
 
@@ -187,7 +168,7 @@ type PaginationClient interface {
 }
 
 type Paginator struct {
-	options TableOptions
+	options Options
 	client  PaginationClient
 }
 
@@ -201,15 +182,12 @@ type page struct {
 	StartKey []byte
 }
 
-func (p page) DynamoID() string { return p.ID }
-
-func (p page) DynamoItemType() string { return "Pagination" }
-
 func (p page) DynamoMarshalRecord(o *MarshalOptions) {
 	o.HashKeyID = p.ID
 	o.SortKeyID = p.ID
 	o.HashKeyPrefix = "pagination"
 	o.SortKeyPrefix = "pagination"
+	o.ItemType = "pagination"
 	o.SupportCollectionQuery = false
 	o.SupportReverseLookup = false
 }
@@ -268,9 +246,9 @@ func (t Table[T]) Paginator(client PaginationClient) Paginator {
 	return Paginator{client: client, options: t.Options}
 }
 
-func (t Table[T]) Put(data T, opts ...func(*TableOptions)) operation.Put {
-	t.Options.apply(opts)
-	record := Marshal(data, t.Options.MarshalOptions...)
+func (t Table[T]) Put(data T, opts ...func(*Options)) operation.Put {
+	t.Options.Apply(opts)
+	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	item, err := t.Options.Marshaler.MarshalMap(record)
 	return func(ctx context.Context) (*dynamodb.PutItemInput, error) {
 		return &dynamodb.PutItemInput{
@@ -280,9 +258,9 @@ func (t Table[T]) Put(data T, opts ...func(*TableOptions)) operation.Put {
 	}
 }
 
-func (t Table[T]) Get(data T, opts ...func(*TableOptions)) operation.Get {
-	t.Options.apply(opts)
-	record := Marshal(data, t.Options.MarshalOptions...)
+func (t Table[T]) Get(data T, opts ...func(*Options)) operation.Get {
+	t.Options.Apply(opts)
+	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	key := record.Key()
 	return func(ctx context.Context) (*dynamodb.GetItemInput, error) {
 		return &dynamodb.GetItemInput{
@@ -292,9 +270,9 @@ func (t Table[T]) Get(data T, opts ...func(*TableOptions)) operation.Get {
 	}
 }
 
-func (t Table[T]) Delete(data T, opts ...func(*TableOptions)) operation.Delete {
-	t.Options.apply(opts)
-	record := Marshal(data, t.Options.MarshalOptions...)
+func (t Table[T]) Delete(data T, opts ...func(*Options)) operation.Delete {
+	t.Options.Apply(opts)
+	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	key := record.Key()
 	return func(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
 		return &dynamodb.DeleteItemInput{
@@ -305,12 +283,12 @@ func (t Table[T]) Delete(data T, opts ...func(*TableOptions)) operation.Delete {
 }
 
 type UpdateStrategy interface {
-	modify(op operation.UpdateItem, opts TableOptions) operation.UpdateItem
+	modify(op operation.UpdateItem, opts Options) operation.UpdateItem
 }
 
-func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*TableOptions)) operation.UpdateItem {
-	t.Options.apply(opts)
-	record := Marshal(id, t.Options.MarshalOptions...)
+func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
+	t.Options.Apply(opts)
+	record := MarshalRecord(id, t.Options.MarshalOptions...)
 
 	return strategy.modify(func(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 		return &dynamodb.UpdateItemInput{
@@ -328,7 +306,7 @@ type UpdateDataAttributes struct {
 	Updates    map[string]UpdateAttributeFunc
 }
 
-func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts TableOptions) operation.UpdateItem {
+func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts Options) operation.UpdateItem {
 	var (
 		builder = expression.NewBuilder()
 		update  = updateTimestamp(opts.Tick().UTC())
@@ -347,11 +325,11 @@ func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts TableOptions)
 }
 
 type QueryStrategy interface {
-	modify(op operation.Query, opts TableOptions) operation.Query
+	modify(op operation.Query, opts Options) operation.Query
 }
 
-func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*TableOptions)) operation.Query {
-	t.Options.apply(opts)
+func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*Options)) operation.Query {
+	t.Options.Apply(opts)
 	return strategy.modify(func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		return &dynamodb.QueryInput{
 			TableName: &t.Options.TableName,
@@ -359,8 +337,8 @@ func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*TableOptions)) ope
 	}, t.Options)
 }
 
-func (t Table[T]) Unmarshal(item ezddb.Item, opts ...func(*TableOptions)) (Record[T], error) {
-	t.Options.apply(opts)
+func (t Table[T]) Unmarshal(item ezddb.Item, opts ...func(*Options)) (Record[T], error) {
+	t.Options.Apply(opts)
 	var record Record[T]
 	err := t.Options.Marshaler.UnmarshalMap(item, &record)
 	return record, err
@@ -384,7 +362,7 @@ type QueryOptions struct {
 	// The lower limit date filter, or earliest creation date. Only used by collection index queries.
 	CreatedAfter time.Time
 
-	Filter           expression.ConditionBuilder // A filter condition to apply to the query.
+	Filter           expression.ConditionBuilder // A filter condition to Apply to the query.
 	StartKeyProvider ezddb.StartKeyProvider      // The start key provider used for pagination.
 	Cursor           string                      // The last pagination cursor token.
 	Limit            int                         // The number of items to return.
@@ -394,7 +372,7 @@ type ReverseLookupQuery struct {
 	QueryOptions
 }
 
-func (q ReverseLookupQuery) modify(op operation.Query, opts TableOptions) operation.Query {
+func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 	keyCondition := sortKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {
@@ -422,7 +400,7 @@ type CollectionQuery struct {
 	QueryOptions
 }
 
-func (q CollectionQuery) modify(op operation.Query, opts TableOptions) operation.Query {
+func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 
 	// we consider the zero values for the lower and upper date bounds to be
@@ -430,13 +408,13 @@ func (q CollectionQuery) modify(op operation.Query, opts TableOptions) operation
 	if q.CreatedBefore.IsZero() {
 		q.CreatedBefore = opts.Tick().UTC().Add(1 * time.Hour)
 	}
-	// apply the key condition
+	// Apply the key condition
 	builder = builder.WithKeyCondition(
 		itemTypeEquals(q.PartitionKeyValue).And(collectionSortKeyBetweenDates(
 			q.CreatedAfter,
 			q.CreatedBefore,
 		)))
-	// apply the filter condition
+	// Apply the filter condition
 	if q.Filter.IsSet() {
 		builder = builder.WithFilter(q.Filter)
 	}
@@ -459,7 +437,7 @@ type LookupQuery struct {
 	QueryOptions
 }
 
-func (q LookupQuery) modify(op operation.Query, opts TableOptions) operation.Query {
+func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	builder := expression.NewBuilder()
 	keyCondition := hashKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {

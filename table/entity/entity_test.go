@@ -13,7 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb/entity"
+	"github.com/nisimpson/ezddb/table"
+	"github.com/nisimpson/ezddb/table/entity"
 	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/assert"
 )
@@ -24,11 +25,11 @@ type Customer struct {
 	Orders []*Order `dynamodbav:"-"`
 }
 
-func (c Customer) DynamoID() string              { return c.ID }
-func (c Customer) DynamoItemType() string        { return "customer" }
-func (c Customer) DynamoRelationships() []string { return []string{"customer-order"} }
+func (c Customer) EntityID() string              { return c.ID }
+func (c Customer) EntityType() string            { return "customer" }
+func (c Customer) EntityRelationships() []string { return []string{"customer-order"} }
 
-func (c Customer) DynamoGetRelationship(name string) []entity.Data {
+func (c Customer) EntityRelationship(name string) []entity.Data {
 	if name == "customer-order" {
 		entities := make([]entity.Data, 0, len(c.Orders))
 		for _, order := range c.Orders {
@@ -39,12 +40,12 @@ func (c Customer) DynamoGetRelationship(name string) []entity.Data {
 	return nil
 }
 
-func (c Customer) DynamoIsReverseRelationship(name string) bool {
+func (c Customer) EntityIsReverseRelationship(name string) bool {
 	// customer -> order relationships are stored on the order partition.
 	return name == "customer-order"
 }
 
-func (c Customer) DynamoGetRelationshipSortKey(name string) string {
+func (c Customer) EntityRelationshipSortKey(name string) string {
 	if name == "customer-order" {
 		return "customer/orders"
 	}
@@ -66,18 +67,18 @@ type Order struct {
 	Customer *Customer `dynamodbav:"-"`
 }
 
-func (o Order) DynamoID() string              { return o.ID }
-func (o Order) DynamoItemType() string        { return "order" }
-func (o Order) DynamoRelationships() []string { return []string{"customer-order"} }
+func (o Order) EntityID() string              { return o.ID }
+func (o Order) EntityType() string            { return "order" }
+func (o Order) EntityRelationships() []string { return []string{"customer-order"} }
 
-func (o Order) DynamoGetRelationship(name string) []entity.Data {
+func (o Order) EntityRelationship(name string) []entity.Data {
 	if name == "customer-order" {
 		return []entity.Data{o.Customer}
 	}
 	return nil
 }
 
-func (o Order) DynamoGetRelationshipSortKey(name string) string {
+func (o Order) EntityRelationshipSortKey(name string) string {
 	// customer is the reverse lookup for customer -> order, so we want to ensure
 	// the sort keys are the same.
 	if name == "customer-order" {
@@ -86,7 +87,7 @@ func (o Order) DynamoGetRelationshipSortKey(name string) string {
 	return ""
 }
 
-func (o Order) DynamoIsReverseRelationship(name string) bool {
+func (o Order) EntityIsReverseRelationship(name string) bool {
 	// order -> customer relationships are stored on this partition.
 	return name != "customer-order"
 }
@@ -130,33 +131,33 @@ func (fixture) createTable(t *testing.T, client *dynamodb.Client, g entity.Graph
 		OnDemandThroughput: throughput,
 		AttributeDefinitions: []types.AttributeDefinition{
 			{
-				AttributeName: aws.String(entity.AttributeNameHK),
+				AttributeName: aws.String(table.AttributeNameHK),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(entity.AttributeNameSK),
+				AttributeName: aws.String(table.AttributeNameSK),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(entity.AttributeNameItemType),
+				AttributeName: aws.String(table.AttributeNameItemType),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(entity.AttributeNameReverseLookupSortKey),
+				AttributeName: aws.String(table.AttributeNameReverseLookupSortKey),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 			{
-				AttributeName: aws.String(entity.AttributeNameCollectionSortKey),
+				AttributeName: aws.String(table.AttributeNameCollectionSortKey),
 				AttributeType: types.ScalarAttributeTypeS,
 			},
 		},
 		KeySchema: []types.KeySchemaElement{
 			{
-				AttributeName: aws.String(entity.AttributeNameHK),
+				AttributeName: aws.String(table.AttributeNameHK),
 				KeyType:       types.KeyTypeHash,
 			},
 			{
-				AttributeName: aws.String(entity.AttributeNameSK),
+				AttributeName: aws.String(table.AttributeNameSK),
 				KeyType:       types.KeyTypeRange,
 			},
 		},
@@ -166,11 +167,11 @@ func (fixture) createTable(t *testing.T, client *dynamodb.Client, g entity.Graph
 				OnDemandThroughput: throughput,
 				KeySchema: []types.KeySchemaElement{
 					{
-						AttributeName: aws.String(entity.AttributeNameSK),
+						AttributeName: aws.String(table.AttributeNameSK),
 						KeyType:       types.KeyTypeHash,
 					},
 					{
-						AttributeName: aws.String(entity.AttributeNameReverseLookupSortKey),
+						AttributeName: aws.String(table.AttributeNameReverseLookupSortKey),
 						KeyType:       types.KeyTypeRange,
 					},
 				},
@@ -183,11 +184,11 @@ func (fixture) createTable(t *testing.T, client *dynamodb.Client, g entity.Graph
 				OnDemandThroughput: throughput,
 				KeySchema: []types.KeySchemaElement{
 					{
-						AttributeName: aws.String(entity.AttributeNameItemType),
+						AttributeName: aws.String(table.AttributeNameItemType),
 						KeyType:       types.KeyTypeHash,
 					},
 					{
-						AttributeName: aws.String(entity.AttributeNameCollectionSortKey),
+						AttributeName: aws.String(table.AttributeNameCollectionSortKey),
 						KeyType:       types.KeyTypeRange,
 					},
 				},
@@ -210,7 +211,7 @@ func (fixture) createTable(t *testing.T, client *dynamodb.Client, g entity.Graph
 	_, err = client.UpdateTimeToLive(ctx, &dynamodb.UpdateTimeToLiveInput{
 		TableName: &g.Options.TableName,
 		TimeToLiveSpecification: &types.TimeToLiveSpecification{
-			AttributeName: aws.String(entity.AttributeNameExpires),
+			AttributeName: aws.String(table.AttributeNameExpires),
 			Enabled:       aws.Bool(true),
 		},
 	})
@@ -225,7 +226,7 @@ func (f fixture) runInteg(t *testing.T, fn func(*testing.T, *dynamodb.Client, en
 	client := dynamodb.NewFromConfig(cfg, func(o *dynamodb.Options) {
 		o.BaseEndpoint = aws.String("http://localhost:8000/")
 	})
-	graph := entity.New("ezddb-integration-test-table", func(o *entity.TableOptions) {
+	graph := entity.NewGraph("ezddb-integration-test-table", func(o *table.Options) {
 		o.IDGenerator = f
 	})
 	f.createTable(t, client, graph)
@@ -253,8 +254,8 @@ func TestGraphIntegration(t *testing.T) {
 					{ID: "order-1"},
 					{ID: "order-2"},
 				},
-			}, func(to *entity.TableOptions) {
-				to.MarshalOptions = append(to.MarshalOptions, func(mo *entity.MarshalOptions) {})
+			}, func(to *table.Options) {
+				to.MarshalOptions = append(to.MarshalOptions, func(mo *table.MarshalOptions) {})
 			}).Execute(context.TODO(), client)
 			assert.NoError(t, err, "failed to put entity: %v", err)
 		})
@@ -412,7 +413,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.Equal(t, "customer-1", gotCustomer.ID)
 
 			input, err = g.ListEntities("customer", func(leq *entity.ListEntitiesQuery) {
-				leq.Filter = leq.Filter.And(g.DataFilter("Name").Equal(expression.Value("Bob")))
+				leq.Filter = leq.Filter.And(g.EntityAttribute("Name").Name().Equal(expression.Value("Bob")))
 			}).Invoke(context.TODO())
 			assert.NoError(t, err)
 			data, err = json.MarshalIndent(input, "", " ")
