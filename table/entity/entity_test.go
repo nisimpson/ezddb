@@ -25,34 +25,27 @@ type Customer struct {
 	Orders []*Order `dynamodbav:"-"`
 }
 
-func (c Customer) EntityID() string              { return c.ID }
-func (c Customer) EntityType() string            { return "customer" }
-func (c Customer) EntityRelationships() []string { return []string{"customer-order"} }
+func (c Customer) EntityID() string   { return c.ID }
+func (c Customer) EntityType() string { return "customer" }
 
-func (c Customer) EntityRelationship(name string) []entity.Data {
+func (c Customer) EntityRelationships() map[string]entity.Relationship {
+	return map[string]entity.Relationship{
+		// customer -> order relationships are stored on the order partition.
+		"customer-order": {
+			IsOneToMany: true,
+			SortKey:     "customer/orders",
+		},
+	}
+}
+
+func (c Customer) EntityRef(name string) []entity.Data {
 	if name == "customer-order" {
-		entities := make([]entity.Data, 0, len(c.Orders))
-		for _, order := range c.Orders {
-			entities = append(entities, order)
-		}
-		return entities
+		return entity.DataSlice(c.Orders...)
 	}
 	return nil
 }
 
-func (c Customer) EntityIsReverseRelationship(name string) bool {
-	// customer -> order relationships are stored on the order partition.
-	return name == "customer-order"
-}
-
-func (c Customer) EntityRelationshipSortKey(name string) string {
-	if name == "customer-order" {
-		return "customer/orders"
-	}
-	return ""
-}
-
-func (c *Customer) UnmarshalRelationship(name string, startID, endID string) error {
+func (c *Customer) UnmarshalEntityRef(name string, startID, endID string) error {
 	if name == "customer-order" {
 		// reverse lookup -> order_id, customer_id
 		c.Orders = append(c.Orders, &Order{ID: startID, Customer: c})
@@ -67,32 +60,28 @@ type Order struct {
 	Customer *Customer `dynamodbav:"-"`
 }
 
-func (o Order) EntityID() string              { return o.ID }
-func (o Order) EntityType() string            { return "order" }
-func (o Order) EntityRelationships() []string { return []string{"customer-order"} }
+func (o Order) EntityID() string   { return o.ID }
+func (o Order) EntityType() string { return "order" }
 
-func (o Order) EntityRelationship(name string) []entity.Data {
+func (o Order) EntityRelationships() map[string]entity.Relationship {
+	return map[string]entity.Relationship{
+		// customer is stored on "this" side/partition, so we want to ensure
+		// the sort keys are the same as the customer side.
+		"customer-order": {
+			IsOneToMany: false,
+			SortKey:     "customer/orders",
+		},
+	}
+}
+
+func (o Order) EntityRef(name string) []entity.Data {
 	if name == "customer-order" {
-		return []entity.Data{o.Customer}
+		return entity.DataSlice(o.Customer)
 	}
 	return nil
 }
 
-func (o Order) EntityRelationshipSortKey(name string) string {
-	// customer is the reverse lookup for customer -> order, so we want to ensure
-	// the sort keys are the same.
-	if name == "customer-order" {
-		return "customer/orders"
-	}
-	return ""
-}
-
-func (o Order) EntityIsReverseRelationship(name string) bool {
-	// order -> customer relationships are stored on this partition.
-	return name != "customer-order"
-}
-
-func (o *Order) UnmarshalRelationship(name string, startID, endID string) error {
+func (o *Order) UnmarshalEntityRef(name string, startID, endID string) error {
 	if name == "customer-order" {
 		// forward lookup -> order_id, customer_id
 		o.Customer = &Customer{ID: endID}
@@ -328,7 +317,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.NotNil(t, got.Items)
 
 			for _, item := range got.Items {
-				entity.UnmarshalRelationship(item, &customer)
+				entity.UnmarshalEntityRef(item, &customer)
 			}
 
 			assert.Len(t, customer.Orders, 2)
@@ -347,7 +336,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.NoError(t, err, "failed to get entity: %v", err)
 			assert.NotNil(t, got.Item)
 
-			err = entity.UnmarshalRelationship(got.Item, &customer)
+			err = entity.UnmarshalEntityRef(got.Item, &customer)
 			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
 
 			assert.Len(t, customer.Orders, 1)
@@ -370,7 +359,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.NotNil(t, got.Items)
 
 			for _, item := range got.Items {
-				entity.UnmarshalRelationship(item, &order)
+				entity.UnmarshalEntityRef(item, &order)
 			}
 
 			assert.NotNil(t, order.Customer)
@@ -389,7 +378,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.NoError(t, err, "failed to get entity: %v", err)
 			assert.NotNil(t, got.Item)
 
-			err = entity.UnmarshalRelationship(got.Item, &order)
+			err = entity.UnmarshalEntityRef(got.Item, &order)
 			assert.NoError(t, err, "failed to unmarshal entity: %v", err)
 
 			assert.NotNil(t, order.Customer)

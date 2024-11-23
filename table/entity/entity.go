@@ -17,6 +17,55 @@ type Data interface {
 	EntityType() string
 }
 
+type Relationship struct {
+	// True if the relationship is an "one-to-many" relationship, which are
+	// are stored on the "end" side of the relationship. Reverse relationships
+	// are optimal for "one-to-many" or "many-to-many" relationships, where a single reference
+	// to the "start" entity is stored on the "end" entity's partition. This association can be
+	// queried with the [Graph.ListRelationships] method, with the [ListRelationshipsQuery.Reverse]
+	// field set to true.
+	IsOneToMany bool
+	// The sort key to use for the relationship. If empty, the sort key will be a combination
+	// of the start and end entity types.
+	//
+	// Bi-directional relationships should share the same relationship name and sort key
+	// for consistency:
+	//
+	//	// Relationship.Name = "customer-order"
+	//	// Relationship.IsMany = true
+	//	// Relationship.SortKey = "customer/orders"
+	//	type Customer struct { Orders []*Order }
+	//
+	//	// Relationship.Name = "customer-order"
+	//	// Relationship.IsMany = false
+	//	// Relationship.SortKey = "customer/orders"
+	//	type Order struct { Customer *Customer }
+	//
+	// This ensures that the target relationships are stored on the same partition.
+	SortKey string
+}
+
+// DataWithRelationships provides methods for defining the relationships an [Data]
+// has with other entities.
+type DataWithRelationships interface {
+	Data
+	// EntityRelationships returns the list of relationship names defined by an [Entity].
+	// For example, a Customer -> Order one-to-many relationship could have the name "orders".
+	EntityRelationships() map[string]Relationship
+	// EntityRef returns the list of entities that comprise the specified relationship.
+	EntityRef(name string) []Data
+}
+
+// DataSlice returns a slice of [Data], serving as a helper function for creating
+// and return the correct data type for [DataWithRelationships.EntityRelationship].
+func DataSlice[T Data](s ...T) []Data {
+	arr := make([]Data, len(s))
+	for i, v := range s {
+		arr[i] = v
+	}
+	return arr
+}
+
 // record stores information about two entities in a relationship,
 // referenced by the start and end entity ids. Relationships between entities are
 // either grouped together on the start entity's partition, or on the end entity's
@@ -99,10 +148,10 @@ func UnmarshalEntity[T Data](item ezddb.Item) (T, error) {
 	return data, err
 }
 
-// RelationshipUnmarshaler can extract edge information from dynamodb items,
+// RefUnmarshaler can extract edge information from dynamodb items,
 // including the relationship name, starting Entity id, and ending
 // Entity id.
-type RelationshipUnmarshaler interface {
+type RefUnmarshaler interface {
 	// UnmarshalRelationship extracts the edge information from the specified
 	// item attribute map.
 	//
@@ -111,22 +160,22 @@ type RelationshipUnmarshaler interface {
 	//
 	// The method should return an error if the item does not contain
 	// the expected edge information.
-	UnmarshalRelationship(name string, startID, endID string) error
+	UnmarshalEntityRef(name string, startID, endID string) error
 }
 
-// UnmarshalRelationship extracts the edge information from the specified
+// UnmarshalEntityRef extracts the edge information from the specified
 // item attribute map.
 //
 // The relationship name, start Entity id, and end Entity id are
-// extracted from the item and passed to the [RelationshipUnmarshaler].
-func UnmarshalRelationship[T RelationshipUnmarshaler](item ezddb.Item, out T) error {
+// extracted from the item and passed to the [RefUnmarshaler].
+func UnmarshalEntityRef[T RefUnmarshaler](item ezddb.Item, out T) error {
 	var (
 		record = table.Record[record[Data]]{}
 		err    = attributevalue.UnmarshalMap(item, &record)
 	)
 
 	if err == nil {
-		err = out.UnmarshalRelationship(
+		err = out.UnmarshalEntityRef(
 			record.Data.Relationship,
 			record.Data.StartEntityID,
 			record.Data.EndEntityID,
@@ -175,9 +224,12 @@ func (g Graph) GetEntity(e Data, opts ...func(*table.Options)) operation.Get {
 }
 
 // GetRelationship retrieves the [relationship] between the start and end [Data] nodes.
-func (g Graph) GetRelationship(start EntityWithRelationships, end Data, name string, opts ...func(*table.Options)) operation.Get {
+func (g Graph) GetRelationship(start DataWithRelationships, end Data, name string, opts ...func(*table.Options)) operation.Get {
 	g.Options.Apply(opts)
-	if start.EntityIsReverseRelationship(name) {
+	var (
+		defs = start.EntityRelationships()
+	)
+	if defs[name].IsOneToMany {
 		return g.Get(newReverseRelationship(start, end, "", ""))
 	}
 	return g.Get(newRelationship(start, end, "", ""))
@@ -209,51 +261,19 @@ func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) o
 	return g.Query(table.CollectionQuery{QueryOptions: query.QueryOptions}, query.Options...)
 }
 
-// EntityWithRelationships provides methods for defining the relationships an [Data]
-// has with other entities.
-type EntityWithRelationships interface {
-	Data
-	// EntityRelationships returns the list of relationship names defined by an [Entity].
-	// For example, a Customer -> Order one-to-many relationship could have the name "orders".
-	EntityRelationships() []string
-	// EntityIsReverseRelationship returns true if the relationship associated with the
-	// specified name is stored on the "end" side of the relationship. Reverse relationships
-	// are optimal for "one-to-many" or "many-to-many" relationships, where a single reference
-	// to the "start" entity is stored on the "end" entity's partition. This association can be
-	// queried with the [Graph.ListRelationships] method, with the [ListRelationshipsQuery.Reverse]
-	// field set to true.
-	EntityIsReverseRelationship(name string) bool
-	// EntityRelationship returns the list of entities that comprise the specified relationship.
-	EntityRelationship(name string) []Data
-	// EntityRelationshipSortKey returns the common sort key that is used for the target
-	// relationship. Bi-directional relationships should share the same relationship and sort key:
-	//
-	//	// EntityType() = "customer"
-	//	// EntityIsReverseRelationship("customer-order") = true
-	//	// EntityRelationshipSortKey("customer-order") = "customer/orders"
-	//	type Customer struct { Orders []*Order }
-	//
-	//	// EntityType() = "order"
-	//	// EntityIsReverseRelationship("customer-order") = false
-	//	// EntityRelationshipSortKey("customer-order") = "customer/orders"
-	//	type Order struct { Customer *Customer }
-	//
-	// This ensures that the target relationship is stored consistently.
-	EntityRelationshipSortKey(name string) string
-}
-
-// AddRelationships adds the relationships defined by the target [EntityWithRelationships].
-func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
+// AddRelationships adds the relationships defined by the target [DataWithRelationships].
+func (g Graph) AddRelationships(e DataWithRelationships, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
 	g.Options.Apply(opts)
 	collection := make(operation.BatchWriteItemCollection, 0)
-	for _, name := range e.EntityRelationships() {
+	for name, ref := range e.EntityRelationships() {
 		var (
-			entities       = e.EntityRelationship(name)
-			relationshipSK = e.EntityRelationshipSortKey(name)
+			entities       = e.EntityRef(name)
+			relationshipSK = ref.SortKey
+			reverse        = ref.IsOneToMany
 		)
 		for _, ref := range entities {
 			var relationship record[Data]
-			if e.EntityIsReverseRelationship(name) {
+			if reverse {
 				relationship = newReverseRelationship(e, ref, name, relationshipSK)
 			} else {
 				relationship = newRelationship(e, ref, name, relationshipSK)
@@ -266,12 +286,13 @@ func (g Graph) AddRelationships(e EntityWithRelationships, opts ...func(*table.O
 }
 
 // DeleteRelationship removes the [relationship] items associated with the target name.
-func (g Graph) DeleteRelationship(e EntityWithRelationships, name string, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
+func (g Graph) DeleteRelationship(e DataWithRelationships, name string, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
 	g.Options.Apply(opts)
 	var (
-		refs    = e.EntityRelationship(name)
-		reverse = e.EntityIsReverseRelationship(name)
-		sortKey = e.EntityRelationshipSortKey(name)
+		defs    = e.EntityRelationships()
+		refs    = e.EntityRef(name)
+		reverse = defs[name].IsOneToMany
+		sortKey = defs[name].SortKey
 		batch   = make(operation.BatchWriteItemCollection, 0, len(refs))
 	)
 
@@ -296,11 +317,12 @@ type ListRelationshipsQuery struct {
 	Options      []func(*table.Options)
 }
 
-// ListRelationships generates a query that searches for relationships formed by the specified [EntityWithRelationships].
+// ListRelationships generates a query that searches for relationships formed by the specified [DataWithRelationships].
 // Modify or extend the query options with a [ListRelationshipsQuery] modifier.
-func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRelationshipsQuery)) operation.Query {
+func (g Graph) ListRelationships(e DataWithRelationships, opts ...func(*ListRelationshipsQuery)) operation.Query {
 	var (
 		node     = table.MarshalRecord(newIdentityRelationship(e))
+		defs     = e.EntityRelationships()
 		strategy table.QueryStrategy
 	)
 
@@ -320,7 +342,8 @@ func (g Graph) ListRelationships(e EntityWithRelationships, opts ...func(*ListRe
 		lookup := table.ReverseLookupQuery{QueryOptions: query.QueryOptions}
 		lookup.PartitionKeyValue = node.SK
 		if query.Relationship != "" {
-			lookup.SortKeyPrefix = e.EntityRelationshipSortKey(query.Relationship)
+			def := defs[query.Relationship]
+			lookup.SortKeyPrefix = def.SortKey
 		}
 		strategy = lookup
 	} else {
