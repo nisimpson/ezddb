@@ -7,11 +7,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// Item is a type alias (and shorthand) for items stored in DynamoDB, which are represented in Golang
+// as maps of attribute values.
 type Item = map[string]types.AttributeValue
-
-type ItemMarshaler = func(any) (Item, error)
-
-type ItemUnmarshaler = func(Item, any) error
 
 // Querier implements the dynamodb Query API.
 type Querier interface {

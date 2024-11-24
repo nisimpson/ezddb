@@ -13,8 +13,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/operation"
 	"github.com/nisimpson/ezddb/query"
+	"github.com/nisimpson/ezddb/stored"
 )
 
 func init() {
@@ -307,7 +307,7 @@ func (t Table[T]) Paginator(client DynamoGetPutter) Paginator {
 //   - opts: Optional configuration functions to modify the table options
 //
 // Returns:
-//   - operation.Put: A function that generates a DynamoDB PutItemInput when executed.
+//   - stored.Put: A function that generates a DynamoDB PutItemInput when executed.
 //
 // Example:
 //
@@ -316,7 +316,7 @@ func (t Table[T]) Paginator(client DynamoGetPutter) Paginator {
 //	// Create and execute the Put operation
 //	putOp := table.Put(user)
 //	result, err := putOp.Execute(ctx, client)
-func (t Table[T]) Put(data T, opts ...func(*Options)) operation.Put {
+func (t Table[T]) Put(data T, opts ...func(*Options)) stored.Put {
 	t.Options.Apply(opts)
 	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	item, err := attributevalue.MarshalMap(record)
@@ -337,7 +337,7 @@ func (t Table[T]) Put(data T, opts ...func(*Options)) operation.Put {
 //   - opts: Optional configuration functions to modify the table options
 //
 // Returns:
-//   - operation.Get: A function that generates a DynamoDB GetItemInput when executed
+//   - stored.Get: A function that generates a DynamoDB GetItemInput when executed
 //
 // Example:
 //
@@ -363,7 +363,7 @@ func (t Table[T]) Put(data T, opts ...func(*Options)) operation.Put {
 //	    user, err := table.Unmarshal(result.Item)
 //	    // user.Data contains the User record
 //	}
-func (t Table[T]) Get(data T, opts ...func(*Options)) operation.Get {
+func (t Table[T]) Get(data T, opts ...func(*Options)) stored.Get {
 	t.Options.Apply(opts)
 	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	key := record.ItemKey()
@@ -384,7 +384,7 @@ func (t Table[T]) Get(data T, opts ...func(*Options)) operation.Get {
 //   - opts: Optional configuration functions to modify the table options
 //
 // Returns:
-//   - operation.Delete: A function that generates a DynamoDB DeleteItemInput when executed
+//   - stored.Delete: A function that generates a DynamoDB DeleteItemInput when executed
 //
 // Example:
 //
@@ -405,7 +405,7 @@ func (t Table[T]) Get(data T, opts ...func(*Options)) operation.Get {
 //	// Note: Only ID needs to be set for deletion
 //	deleteOp := table.Delete(User{ID: "123"})
 //	result, err := deleteOp.Execute(ctx, client)
-func (t Table[T]) Delete(data T, opts ...func(*Options)) operation.Delete {
+func (t Table[T]) Delete(data T, opts ...func(*Options)) stored.Delete {
 	t.Options.Apply(opts)
 	record := MarshalRecord(data, t.Options.MarshalOptions...)
 	key := record.ItemKey()
@@ -419,7 +419,7 @@ func (t Table[T]) Delete(data T, opts ...func(*Options)) operation.Delete {
 
 // UpdateStrategy defines a mechanism for updating a [Record] in a [Table].
 type UpdateStrategy interface {
-	modify(op operation.UpdateItem, opts Options) operation.UpdateItem
+	modify(op stored.UpdateItem, opts Options) stored.UpdateItem
 }
 
 // Update creates a new Update operation for modifying an existing record in DynamoDB. It accepts
@@ -432,7 +432,7 @@ type UpdateStrategy interface {
 //   - opts: Optional configuration functions to modify the table options
 //
 // Returns:
-//   - operation.UpdateItem: A function that generates a DynamoDB UpdateItemInput when executed
+//   - stored.UpdateItem: A function that generates a DynamoDB UpdateItemInput when executed
 //
 // Example:
 //
@@ -458,7 +458,7 @@ type UpdateStrategy interface {
 //	// Create and execute the Update operation
 //	updateOp := table.Update(User{ID: "123"}, updateStrategy)
 //	result, err := updateOp.Execute(ctx, client)
-func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*Options)) operation.UpdateItem {
+func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*Options)) stored.UpdateItem {
 	t.Options.Apply(opts)
 	record := MarshalRecord(id, t.Options.MarshalOptions...)
 
@@ -483,7 +483,7 @@ type UpdateDataAttributes struct {
 	Updates map[string]UpdateAttributeFunc
 }
 
-func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts Options) operation.UpdateItem {
+func (u UpdateDataAttributes) modify(op stored.UpdateItem, opts Options) stored.UpdateItem {
 	var (
 		builder = expression.NewBuilder()
 		update  = updateTimestamp(opts.Tick().UTC())
@@ -498,12 +498,12 @@ func (u UpdateDataAttributes) modify(op operation.UpdateItem, opts Options) oper
 	}
 
 	builder = builder.WithUpdate(update)
-	return op.Modify(operation.WithExpressionBuilder(builder))
+	return op.Modify(stored.WithExpressionBuilder(builder))
 }
 
 // QueryStrategy modifies Query requests on a [Table].
 type QueryStrategy interface {
-	modify(op operation.Query, opts Options) operation.Query
+	modify(op stored.Query, opts Options) stored.Query
 }
 
 // Query creates a new Query operation for retrieving multiple records from DynamoDB based on
@@ -515,7 +515,7 @@ type QueryStrategy interface {
 //   - opts: Optional configuration functions to modify the table options
 //
 // Returns:
-//   - operation.Query: A function that generates a DynamoDB QueryInput when executed
+//   - stored.Query: A function that generates a DynamoDB QueryInput when executed
 //
 // Example:
 //
@@ -543,7 +543,7 @@ type QueryStrategy interface {
 //
 //	queryOp := table.Query(collectionQuery)
 //	result, err := queryOp.Execute(ctx, client)
-func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*Options)) operation.Query {
+func (t Table[T]) Query(strategy QueryStrategy, opts ...func(*Options)) stored.Query {
 	t.Options.Apply(opts)
 	return strategy.modify(func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		return &dynamodb.QueryInput{
@@ -593,7 +593,7 @@ type ReverseLookupQuery struct {
 	QueryOptions
 }
 
-func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Query {
+func (q ReverseLookupQuery) modify(op stored.Query, opts Options) stored.Query {
 	builder := expression.NewBuilder()
 	keyCondition := sortKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {
@@ -604,15 +604,15 @@ func (q ReverseLookupQuery) modify(op operation.Query, opts Options) operation.Q
 	}
 	builder = builder.WithKeyCondition(keyCondition)
 	op = op.Modify(
-		operation.QueryModifierFunc(func(ctx context.Context, qi *dynamodb.QueryInput) error {
+		stored.QueryModifierFunc(func(ctx context.Context, qi *dynamodb.QueryInput) error {
 			qi.IndexName = &opts.ReverseLookupIndexName
 			return nil
 		}),
-		operation.WithExpressionBuilder(builder),
-		operation.WithLimit(q.Limit),
+		stored.WithExpressionBuilder(builder),
+		stored.WithLimit(q.Limit),
 	)
 	if q.Cursor != "" {
-		op = op.Modify(operation.WithLastToken(q.Cursor, q.StartKeyProvider))
+		op = op.Modify(stored.WithLastToken(q.Cursor, q.StartKeyProvider))
 	}
 	return op
 }
@@ -623,7 +623,7 @@ type CollectionQuery struct {
 	QueryOptions
 }
 
-func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Query {
+func (q CollectionQuery) modify(op stored.Query, opts Options) stored.Query {
 	builder := expression.NewBuilder()
 
 	// we consider the zero values for the lower and upper date bounds to be
@@ -643,15 +643,15 @@ func (q CollectionQuery) modify(op operation.Query, opts Options) operation.Quer
 	}
 
 	op = op.Modify(
-		operation.QueryModifierFunc(func(ctx context.Context, qi *dynamodb.QueryInput) error {
+		stored.QueryModifierFunc(func(ctx context.Context, qi *dynamodb.QueryInput) error {
 			qi.IndexName = &opts.CollectionQueryIndexName
 			return nil
 		}),
-		operation.WithExpressionBuilder(builder),
-		operation.WithLimit(q.Limit),
+		stored.WithExpressionBuilder(builder),
+		stored.WithLimit(q.Limit),
 	)
 	if q.Cursor != "" {
-		op = op.Modify(operation.WithLastToken(q.Cursor, q.StartKeyProvider))
+		op = op.Modify(stored.WithLastToken(q.Cursor, q.StartKeyProvider))
 	}
 	return op
 }
@@ -662,7 +662,7 @@ type LookupQuery struct {
 	QueryOptions
 }
 
-func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
+func (q LookupQuery) modify(op stored.Query, opts Options) stored.Query {
 	builder := expression.NewBuilder()
 	keyCondition := hashKeyEquals(q.PartitionKeyValue)
 	if q.SortKeyPrefix != "" {
@@ -673,11 +673,11 @@ func (q LookupQuery) modify(op operation.Query, opts Options) operation.Query {
 	}
 	builder = builder.WithKeyCondition(keyCondition)
 	op = op.Modify(
-		operation.WithExpressionBuilder(builder),
-		operation.WithLimit(q.Limit),
+		stored.WithExpressionBuilder(builder),
+		stored.WithLimit(q.Limit),
 	)
 	if q.Cursor != "" {
-		op = op.Modify(operation.WithLastToken(q.Cursor, q.StartKeyProvider))
+		op = op.Modify(stored.WithLastToken(q.Cursor, q.StartKeyProvider))
 	}
 	return op
 }

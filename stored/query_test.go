@@ -1,4 +1,4 @@
-package operation_test
+package stored_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/operation"
+	"github.com/nisimpson/ezddb/stored"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,7 +38,7 @@ func (p querier) fails() querier {
 	return p
 }
 
-func (t table) queryCustomerName(name string) operation.Query {
+func (t table) queryCustomerName(name string) stored.Query {
 	return func(ctx context.Context) (*dynamodb.QueryInput, error) {
 		if t.OperationFails {
 			return nil, ErrMock
@@ -59,7 +59,7 @@ func (t table) queryCustomerName(name string) operation.Query {
 func TestQueryInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.Query
+		Operation stored.Query
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
@@ -105,7 +105,7 @@ func TestQueryExecute(t *testing.T) {
 	type testcase struct {
 		name      string
 		querier   ezddb.Querier
-		Operation operation.Query
+		Operation stored.Query
 		wantErr   bool
 	}
 
@@ -148,20 +148,20 @@ func TestQueryExecute(t *testing.T) {
 func TestQueryModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.Query
-		modifier  operation.QueryModifier
+		Operation stored.Query
+		modifier  stored.QueryModifier
 		wantInput dynamodb.QueryInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifier := stored.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		input.IndexName = aws.String("query-index")
 		return nil
 	})
 
-	modifierFails := operation.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
+	modifierFails := stored.QueryModifierFunc(func(ctx context.Context, input *dynamodb.QueryInput) error {
 		return ErrMock
 	})
 

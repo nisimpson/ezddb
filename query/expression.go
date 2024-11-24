@@ -318,7 +318,7 @@ func KeyCondition(e Expression) expression.KeyConditionBuilder {
 	return e.keyCondition()
 }
 
-// binaryCriteria represents a comparison between an attribute and a value using a binary operation.
+// binaryCriteria represents a comparison between an attribute and a value using a binary stored.
 type binaryCriteria struct {
 	attribute string    // The name of the attribute being compared
 	Operation operation // The comparison operation to perform
@@ -565,7 +565,7 @@ func (b builder) KeyCondition() expression.KeyConditionBuilder {
 }
 
 // Not creates a new expression that represents the logical negation of the provided expression.
-// It wraps the expression with DynamoDB's NOT operation.
+// It wraps the expression with DynamoDB's NOT stored.
 func Not(expr Expression) Builder {
 	return newBuilder(expr).Not()
 }

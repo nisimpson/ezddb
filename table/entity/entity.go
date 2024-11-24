@@ -3,8 +3,8 @@ package entity
 import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/operation"
 	"github.com/nisimpson/ezddb/query"
+	"github.com/nisimpson/ezddb/stored"
 	"github.com/nisimpson/ezddb/table"
 )
 
@@ -212,19 +212,19 @@ func NewGraph(tableName string, opts ...func(*table.Options)) Graph {
 }
 
 // AddEntity adds a new identity [relationship] associated with the target [Data] to the table.
-func (g Graph) AddEntity(e Data, opts ...func(*table.Options)) operation.Put {
+func (g Graph) AddEntity(e Data, opts ...func(*table.Options)) stored.Put {
 	g.Options.Apply(opts)
 	return g.Put(newIdentityRelationship(e))
 }
 
 // GetEntity retrieves the identity [relationship] associated with the target [Data] id.
-func (g Graph) GetEntity(e Data, opts ...func(*table.Options)) operation.Get {
+func (g Graph) GetEntity(e Data, opts ...func(*table.Options)) stored.Get {
 	g.Options.Apply(opts)
 	return g.Get(newIdentityRelationship(e))
 }
 
 // GetRelationship retrieves the [relationship] between the start and end [Data] nodes.
-func (g Graph) GetRelationship(start DataWithRelationships, end Data, name string, opts ...func(*table.Options)) operation.Get {
+func (g Graph) GetRelationship(start DataWithRelationships, end Data, name string, opts ...func(*table.Options)) stored.Get {
 	g.Options.Apply(opts)
 	var (
 		defs = start.EntityRelationships()
@@ -236,7 +236,7 @@ func (g Graph) GetRelationship(start DataWithRelationships, end Data, name strin
 }
 
 // DeleteEntity removes the identity [relationship] associated with the target [Data].
-func (g Graph) DeleteEntity(v Data, opts ...func(*table.Options)) operation.Delete {
+func (g Graph) DeleteEntity(v Data, opts ...func(*table.Options)) stored.Delete {
 	g.Options.Apply(opts)
 	return g.Delete(newIdentityRelationship(v))
 }
@@ -250,7 +250,7 @@ type ListEntitiesQuery struct {
 
 // ListEntities searches for and returns a list entities of the same entity type within the [Graph].
 // Modify or extend the query options using a [ListEntitiesQuery] function.
-func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) operation.Query {
+func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) stored.Query {
 	q := ListEntitiesQuery{}
 	q.PartitionKeyValue = itemType
 	q.Filter = query.Identity().Condition()
@@ -262,9 +262,9 @@ func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) o
 }
 
 // AddRelationships adds the relationships defined by the target [DataWithRelationships].
-func (g Graph) AddRelationships(e DataWithRelationships, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
+func (g Graph) AddRelationships(e DataWithRelationships, opts ...func(*table.Options)) stored.BatchWriteItemCollection {
 	g.Options.Apply(opts)
-	collection := make(operation.BatchWriteItemCollection, 0)
+	collection := make(stored.BatchWriteItemCollection, 0)
 	for name, ref := range e.EntityRelationships() {
 		var (
 			entities       = e.EntityRef(name)
@@ -286,14 +286,14 @@ func (g Graph) AddRelationships(e DataWithRelationships, opts ...func(*table.Opt
 }
 
 // DeleteRelationship removes the [relationship] items associated with the target name.
-func (g Graph) DeleteRelationship(e DataWithRelationships, name string, opts ...func(*table.Options)) operation.BatchWriteItemCollection {
+func (g Graph) DeleteRelationship(e DataWithRelationships, name string, opts ...func(*table.Options)) stored.BatchWriteItemCollection {
 	g.Options.Apply(opts)
 	var (
 		defs    = e.EntityRelationships()
 		refs    = e.EntityRef(name)
 		reverse = defs[name].IsOneToMany
 		sortKey = defs[name].SortKey
-		batch   = make(operation.BatchWriteItemCollection, 0, len(refs))
+		batch   = make(stored.BatchWriteItemCollection, 0, len(refs))
 	)
 
 	for _, r := range refs {
@@ -319,7 +319,7 @@ type ListRelationshipsQuery struct {
 
 // ListRelationships generates a query that searches for relationships formed by the specified [DataWithRelationships].
 // Modify or extend the query options with a [ListRelationshipsQuery] modifier.
-func (g Graph) ListRelationships(e DataWithRelationships, opts ...func(*ListRelationshipsQuery)) operation.Query {
+func (g Graph) ListRelationships(e DataWithRelationships, opts ...func(*ListRelationshipsQuery)) stored.Query {
 	var (
 		node     = table.MarshalRecord(newIdentityRelationship(e))
 		defs     = e.EntityRelationships()

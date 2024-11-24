@@ -1,4 +1,4 @@
-package operation_test
+package stored_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/nisimpson/ezddb/operation"
+	"github.com/nisimpson/ezddb/stored"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -37,8 +37,8 @@ func (p transactGetter) fails() transactGetter {
 	return p
 }
 
-func (t table) getCustomers(customers ...string) operation.TransactGetItemsCollection {
-	transactions := operation.TransactGetItemsCollection{}
+func (t table) getCustomers(customers ...string) stored.TransactGetItemsCollection {
+	transactions := stored.TransactGetItemsCollection{}
 	for _, c := range customers {
 		transactions = append(transactions, t.getCustomer(c))
 	}
@@ -48,7 +48,7 @@ func (t table) getCustomers(customers ...string) operation.TransactGetItemsColle
 func TestTransactionGetInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactGetItemsCollection
+		Operation stored.TransactGetItemsCollection
 		wantInput []*dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
@@ -105,8 +105,8 @@ func TestTransactionGetInvoke(t *testing.T) {
 func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
-		transactGetter operation.TransactionGetter
-		Operation      operation.TransactGetItemsCollection
+		transactGetter stored.TransactionGetter
+		Operation      stored.TransactGetItemsCollection
 		wantErr        bool
 	}
 
@@ -149,20 +149,20 @@ func TestTransactionGetExecute(t *testing.T) {
 func TestTransactionGetModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactGetItemsCollection
-		modifier  operation.TransactGetItemsModifier
+		Operation stored.TransactGetItemsCollection
+		modifier  stored.TransactGetItemsModifier
 		wantInput []*dynamodb.TransactGetItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifier := stored.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		input.ReturnConsumedCapacity = types.ReturnConsumedCapacityTotal
 		return nil
 	})
 
-	modifierFails := operation.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
+	modifierFails := stored.TransactGetModifierFunc(func(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 		return ErrMock
 	})
 

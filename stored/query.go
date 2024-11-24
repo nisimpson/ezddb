@@ -1,4 +1,4 @@
-package operation
+package stored
 
 import (
 	"context"
@@ -50,7 +50,7 @@ func (p Query) Execute(ctx context.Context,
 }
 
 // WithPagination creates a new Operation that exhastively retrieves items from the
-// database using the initial operation. Use the callback to access data from each
+// database using the initial stored. Use the callback to access data from each
 // response.
 func (p Query) WithPagination(callback PageQueryCallback) QueryExecutor {
 	return func(ctx context.Context, q ezddb.Querier, options ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {

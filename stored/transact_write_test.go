@@ -1,4 +1,4 @@
-package operation_test
+package stored_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/operation"
+	"github.com/nisimpson/ezddb/stored"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -38,8 +38,8 @@ func (p transactWriter) fails() transactWriter {
 	return p
 }
 
-func (t table) updateCustomers(customers ...customer) operation.TransactWriteItemsCollection {
-	transaction := operation.TransactWriteItemsCollection{}
+func (t table) updateCustomers(customers ...customer) stored.TransactWriteItemsCollection {
+	transaction := stored.TransactWriteItemsCollection{}
 	for _, c := range customers {
 		transaction = append(transaction, t.updateCustomer(c))
 	}
@@ -49,7 +49,7 @@ func (t table) updateCustomers(customers ...customer) operation.TransactWriteIte
 func TestTransactWriteInvoke(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactWriteItemsCollection
+		Operation stored.TransactWriteItemsCollection
 		wantInput []*dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
@@ -122,7 +122,7 @@ func TestTransactWriteExecute(t *testing.T) {
 	type testcase struct {
 		name           string
 		transactWriter ezddb.TransactionWriter
-		Operation      operation.TransactWriteItemsCollection
+		Operation      stored.TransactWriteItemsCollection
 		wantErr        bool
 	}
 
@@ -165,20 +165,20 @@ func TestTransactWriteExecute(t *testing.T) {
 func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
-		Operation operation.TransactWriteItemsCollection
-		modifier  operation.TransactionWriteItemsModifier
+		Operation stored.TransactWriteItemsCollection
+		modifier  stored.TransactionWriteItemsModifier
 		wantInput []*dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}
 
 	table := table{tableName: "customer-table"}
 
-	modifier := operation.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifier := stored.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		input.ClientRequestToken = aws.String("token")
 		return nil
 	})
 
-	modifierFails := operation.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
+	modifierFails := stored.TransactionWriteItemsModifierFunc(func(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 		return ErrMock
 	})
 

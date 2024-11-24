@@ -1,4 +1,4 @@
-package operation
+package stored
 
 import (
 	"context"
@@ -48,7 +48,7 @@ func (p Scan) Execute(ctx context.Context,
 type PageScanCallback = func(context.Context, *dynamodb.ScanOutput) bool
 
 // WithPagination creates a new Operation that exhastively retrieves items from the
-// database using the initial operation. Use the callback to access data from each
+// database using the initial stored. Use the callback to access data from each
 // response.
 func (p Scan) WithPagination(callback PageScanCallback) ScanExecutor {
 	return func(ctx context.Context, scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {

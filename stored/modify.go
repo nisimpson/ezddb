@@ -1,4 +1,4 @@
-package operation
+package stored
 
 import (
 	"context"
@@ -63,7 +63,7 @@ func (w withLastToken) ModifyScanInput(ctx context.Context, input *dynamodb.Scan
 }
 
 // WithLastToken creates a new input modifier for adding pagination tokens to scan or query
-// operation.
+// stored.
 func WithLastToken(token string, provider ezddb.StartKeyProvider) withLastToken {
 	return withLastToken{token: token, provider: provider}
 }
