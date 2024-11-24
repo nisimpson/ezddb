@@ -24,7 +24,7 @@ go get github.com/nisimpson/ezddb
 ### Main Packages
 
 - `ezddb`: Core interfaces and types for DynamoDB operations
-- `table`: Main entry point for table operations with type-safe record handling
+- `table`: Main entry point for opinionated table operations with type-safe record handling
 - `query`: Expression builders for DynamoDB queries and conditions
 - `stored`: Implementation of various DynamoDB operations (Put, Get, Query, etc.)
 
