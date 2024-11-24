@@ -9,7 +9,8 @@ import (
 	"github.com/nisimpson/ezddb"
 )
 
-// Delete functions generate dynamodb put input data given some context.
+// Delete is a function that generates a DynamoDB DeleteItemInput given a context.
+// It represents a delete operation that can be modified and executed.
 type Delete func(context.Context) (*dynamodb.DeleteItemInput, error)
 
 // Invoke is a wrapper around the function invocation for semantic purposes.
@@ -17,21 +18,22 @@ func (d Delete) Invoke(ctx context.Context) (*dynamodb.DeleteItemInput, error) {
 	return d(ctx)
 }
 
-// DeleteModifier makes modifications to the input before the Operation is executed.
+// DeleteModifier defines the interface for types that can modify [dynamodb.DeleteItemInput] request
+// before execution.
 type DeleteModifier interface {
 	// ModifyDeleteItemInput is invoked when this modifier is applied to the provided input.
 	ModifyDeleteItemInput(context.Context, *dynamodb.DeleteItemInput) error
 }
 
-// DeleteModifierFunc is a function that implements DeleteModifier.
+// DeleteModifierFunc is a function type that implements the [DeleteModifier] interface.
+// It provides a convenient way to create DeleteModifiers from simple functions.
 type DeleteModifierFunc modifier[dynamodb.DeleteItemInput]
 
 func (d DeleteModifierFunc) ModifyDeleteItemInput(ctx context.Context, input *dynamodb.DeleteItemInput) error {
 	return d(ctx, input)
 }
 
-// Modify adds modifying functions to the Operation, transforming the input
-// before it is executed.
+// Modify applies the provided modifiers to this Delete operation and returns a new Delete operation.
 func (d Delete) Modify(modifiers ...DeleteModifier) Delete {
 	mapper := func(ctx context.Context, input *dynamodb.DeleteItemInput, mod DeleteModifier) error {
 		return mod.ModifyDeleteItemInput(ctx, input)
@@ -41,7 +43,7 @@ func (d Delete) Modify(modifiers ...DeleteModifier) Delete {
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (d Delete) Execute(ctx context.Context,
 	deleter ezddb.Deleter, options ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	if input, err := d.Invoke(ctx); err != nil {
@@ -51,7 +53,7 @@ func (d Delete) Execute(ctx context.Context,
 	}
 }
 
-// ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
+// ModifyTransactWriteItemsInput modifies a [dynamodb.TransactWriteItemsInput] to include this delete operation.
 func (d Delete) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	if deletes, err := d.Invoke(ctx); err != nil {
 		return err
@@ -69,7 +71,8 @@ func (d Delete) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamo
 	}
 }
 
-// ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
+// ModifyBatchWriteItemInput implements the [BatchWriteItemModifier] interface.
+// It modifies a [dynamodb.BatchWriteItemInput] to include this delete operation.
 func (d Delete) ModifyBatchWriteItemInput(ctx context.Context, input *dynamodb.BatchWriteItemInput) error {
 	if input.RequestItems == nil {
 		input.RequestItems = make(map[string][]types.WriteRequest)

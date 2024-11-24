@@ -10,28 +10,33 @@ import (
 )
 
 // Get functions generate dynamodb put input data given some context.
+// Get is a function that generates a DynamoDB GetItemInput given a context.
+// It represents a get operation that can be modified and executed.
 type Get func(context.Context) (*dynamodb.GetItemInput, error)
 
 // Invoke is a wrapper around the function invocation for semantic purposes.
+// Invoke executes the Get function with the provided context to generate a GetItemInput.
 func (g Get) Invoke(ctx context.Context) (*dynamodb.GetItemInput, error) {
 	return g(ctx)
 }
 
 // GetModifier makes modifications to the input before the Operation is executed.
+// GetModifier defines the interface for types that can modify GetItemInput operations.
 type GetModifier interface {
 	// ModifyGetItemInput is invoked when this modifier is applied to the provided input.
 	ModifyGetItemInput(context.Context, *dynamodb.GetItemInput) error
 }
 
 // GetModifierFunc is a function that implements GetModifier.
+// GetModifierFunc is a function type that implements the GetModifier interface.
+// It provides a convenient way to create GetModifiers from simple functions.
 type GetModifierFunc modifier[dynamodb.GetItemInput]
 
 func (g GetModifierFunc) ModifyGetItemInput(ctx context.Context, input *dynamodb.GetItemInput) error {
 	return g(ctx, input)
 }
 
-// Modify adds modifying functions to the Operation, transforming the input
-// before it is executed.
+// Modify applies the provided modifiers to this Get operation and returns a new Get operation.
 func (p Get) Modify(modifiers ...GetModifier) Get {
 	mapper := func(ctx context.Context, input *dynamodb.GetItemInput, mod GetModifier) error {
 		return mod.ModifyGetItemInput(ctx, input)
@@ -41,7 +46,7 @@ func (p Get) Modify(modifiers ...GetModifier) Get {
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (g Get) Execute(ctx context.Context,
 	getter ezddb.Getter, options ...func(*dynamodb.Options)) (*dynamodb.GetItemOutput, error) {
 	if input, err := g.Invoke(ctx); err != nil {
@@ -51,7 +56,8 @@ func (g Get) Execute(ctx context.Context,
 	}
 }
 
-// ModifyBatchWriteItemInput implements the BatchWriteModifier interface.
+// ModifyBatchGetItemInput implements the [BatchGetItemModifier] interface.
+// It modifies a [dynamodb.BatchGetItemInput] to include this get operation.
 func (g Get) ModifyBatchGetItemInput(ctx context.Context, input *dynamodb.BatchGetItemInput) error {
 	if input.RequestItems == nil {
 		input.RequestItems = map[string]types.KeysAndAttributes{}
@@ -72,7 +78,8 @@ func (g Get) ModifyBatchGetItemInput(ctx context.Context, input *dynamodb.BatchG
 	}
 }
 
-// ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
+// ModifyTransactWriteItemsInput implements the [TransactGetItemsModifier] interface.
+// It modifies a [dynamodb.TransactGetItemsInput] to include this get operation.
 func (g Get) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
 	if get, err := g.Invoke(ctx); err != nil {
 		return err

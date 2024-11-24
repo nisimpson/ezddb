@@ -8,28 +8,30 @@ import (
 	"github.com/nisimpson/ezddb"
 )
 
-// UpdateItem functions generate dynamodb input data given some context.
+// UpdateItem is a function that generates a [dynamodb.UpdateItemInput] given a context.
+// It represents an update operation that can be modified and executed.
 type UpdateItem func(context.Context) (*dynamodb.UpdateItemInput, error)
 
-// Invoke is a wrapper around the function invocation for semantic purposes.
+// Invoke executes the UpdateItem function with the provided context to generate an UpdateItemInput.
 func (u UpdateItem) Invoke(ctx context.Context) (*dynamodb.UpdateItemInput, error) {
 	return u(ctx)
 }
 
-// UpdateItemModifier makes modifications to the input before the Operation is executed.
+// UpdateItemModifier makes modifications to the input before the ojperation is executed.
 type UpdateItemModifier interface {
 	// ModifyPutItemInput is invoked when this modifier is applied to the provided input.
 	ModifyUpdateItemInput(context.Context, *dynamodb.UpdateItemInput) error
 }
 
-// UpdateItemModifierFunc is a function that implements UpdateModifier.
+// UpdateItemModifierFunc is a function type that implements the [UpdateItemModifier] interface.
+// It provides a convenient way to create UpdateItemModifiers from simple functions.
 type UpdateItemModifierFunc modifier[dynamodb.UpdateItemInput]
 
 func (u UpdateItemModifierFunc) ModifyUpdateItemInput(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 	return u(ctx, input)
 }
 
-// Modify adds modifying functions to the Operation, transforming the input
+// Modify adds modifying functions to the operation, transforming the input
 // before it is executed.
 func (u UpdateItem) Modify(modifiers ...UpdateItemModifier) UpdateItem {
 	mapper := func(ctx context.Context, input *dynamodb.UpdateItemInput, mod UpdateItemModifier) error {
@@ -40,7 +42,7 @@ func (u UpdateItem) Modify(modifiers ...UpdateItemModifier) UpdateItem {
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (u UpdateItem) Execute(ctx context.Context,
 	Updater ezddb.Updater, options ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
 	if input, err := u.Invoke(ctx); err != nil {
@@ -50,7 +52,8 @@ func (u UpdateItem) Execute(ctx context.Context,
 	}
 }
 
-// ModifyTransactWriteItemsInput implements the TransactWriteModifier interface.
+// ModifyTransactWriteItemsInput implements the [TransactWriteItemsModifier] interface.
+// It modifies a [dynamodb.TransactWriteItemsInput] to include this update operation.
 func (u UpdateItem) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
 	if update, err := u.Invoke(ctx); err != nil {
 		return err

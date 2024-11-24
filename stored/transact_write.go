@@ -15,7 +15,8 @@ const (
 	MaxTransactionGetSize = 100
 )
 
-// TransactWriteItems functions generate dynamodb input data given some context.
+// TransactWriteItems is a function that generates a [dynamodb.TransactWriteItemsInput] given a context.
+// It represents a transactional write operation that can be modified and executed.
 type TransactWriteItems func(context.Context) (*dynamodb.TransactWriteItemsInput, error)
 
 // newTransactionWriteOperation returns a new transaction write Operation instance.
@@ -33,7 +34,9 @@ func (t TransactWriteItems) Invoke(ctx context.Context) (*dynamodb.TransactWrite
 // TransactWriteItemsCollection is a collection of TransactionWriteItems modifiers
 // that can be chunked into multiple [TransactWriteItems] operations if the total number of
 // transctions execeeds [MaxTransactionGetSize].
-type TransactWriteItemsCollection []TransactionWriteItemsModifier
+// TransactWriteItemsCollection is a collection of modifiers that can be applied to a transactional write operation.
+// It provides methods for joining, modifying, and executing transactional write operations.
+type TransactWriteItemsCollection []TransactWriteItemsModifier
 
 // Join creates a new TransactionWriteItemsCollection by chunking the original
 // collection into batches of size [MaxTransactionGetSize].
@@ -100,13 +103,14 @@ func (c TransactWriteItemsCollection) ExecuteConcurrently(ctx context.Context,
 	return output, errors.Join(errs...)
 }
 
-// TransactionWriteItemsModifier makes modifications to the input before the Operation is executed.
-type TransactionWriteItemsModifier interface {
+// TransactWriteItemsModifier makes modifications to the input before the Operation is executed.
+type TransactWriteItemsModifier interface {
 	// ModifyTransactWriteItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactWriteItemsInput(context.Context, *dynamodb.TransactWriteItemsInput) error
 }
 
-// TransactionWriteItemsModifierFunc is a function that implements TransactionWriteModifier.
+// TransactionWriteItemsModifierFunc is a function type that implements the TransactionWriteItemsModifier interface.
+// It provides a convenient way to create TransactionWriteItemsModifiers from simple functions.
 type TransactionWriteItemsModifierFunc modifier[dynamodb.TransactWriteItemsInput]
 
 func (t TransactionWriteItemsModifierFunc) ModifyTransactWriteItemsInput(ctx context.Context, input *dynamodb.TransactWriteItemsInput) error {
@@ -115,8 +119,8 @@ func (t TransactionWriteItemsModifierFunc) ModifyTransactWriteItemsInput(ctx con
 
 // Modify adds modifying functions to the Operation, transforming the input
 // before it is executed.
-func (t TransactWriteItems) Modify(modifiers ...TransactionWriteItemsModifier) TransactWriteItems {
-	mapper := func(ctx context.Context, input *dynamodb.TransactWriteItemsInput, mod TransactionWriteItemsModifier) error {
+func (t TransactWriteItems) Modify(modifiers ...TransactWriteItemsModifier) TransactWriteItems {
+	mapper := func(ctx context.Context, input *dynamodb.TransactWriteItemsInput, mod TransactWriteItemsModifier) error {
 		return mod.ModifyTransactWriteItemsInput(ctx, input)
 	}
 	return func(ctx context.Context) (*dynamodb.TransactWriteItemsInput, error) {
@@ -124,7 +128,7 @@ func (t TransactWriteItems) Modify(modifiers ...TransactionWriteItemsModifier) T
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (t TransactWriteItems) Execute(ctx context.Context,
 	writer ezddb.TransactionWriter, options ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {

@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/stored"
 	"github.com/stretchr/testify/assert"
 )
@@ -105,7 +106,7 @@ func TestTransactionGetInvoke(t *testing.T) {
 func TestTransactionGetExecute(t *testing.T) {
 	type testcase struct {
 		name           string
-		transactGetter stored.TransactionGetter
+		transactGetter ezddb.TransactionGetter
 		Operation      stored.TransactGetItemsCollection
 		wantErr        bool
 	}

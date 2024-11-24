@@ -27,8 +27,11 @@ func newBatchGetOperation() BatchGetItem {
 	}
 }
 
+// BatchGetItemCollection is a collection of modifiers that can be applied to a batch get operation.
+// It provides methods for joining, modifying, and executing batch get operations.
 type BatchGetItemCollection []BatchGetItemModifier
 
+// Join combines all modifiers in the collection into a slice of BatchGetItem operations.
 func (c BatchGetItemCollection) Join() []BatchGetItem {
 	batches := collection.Chunk(c, MaxBatchReadSize)
 	ops := make([]BatchGetItem, 0, len(batches))
@@ -40,10 +43,12 @@ func (c BatchGetItemCollection) Join() []BatchGetItem {
 	return ops
 }
 
+// Modify applies additional modifiers to the collection and returns the modified collection.
 func (c BatchGetItemCollection) Modify(modifiers ...BatchGetItemModifier) BatchGetItemCollection {
 	return append(c, modifiers...)
 }
 
+// Invoke generates a slice of BatchGetItemInput from the collection using the provided context.
 func (c BatchGetItemCollection) Invoke(ctx context.Context) ([]*dynamodb.BatchGetItemInput, error) {
 	ops := c.Join()
 	inputs := make([]*dynamodb.BatchGetItemInput, 0, len(ops))
@@ -98,7 +103,7 @@ func (g BatchGetItem) Invoke(ctx context.Context) (*dynamodb.BatchGetItemInput, 
 	return g(ctx)
 }
 
-// BatchGetItemModifier makes modifications to the input before the Operation is executed.
+// BatchGetItemModifier defines the interface for types that can modify BatchGetItem operations.
 type BatchGetItemModifier interface {
 	// ModifyBatchGetItemInput is invoked when this modifier is applied to the provided input.
 	ModifyBatchGetItemInput(context.Context, *dynamodb.BatchGetItemInput) error
@@ -115,7 +120,7 @@ func (b BatchGetItem) Modify(modifiers ...BatchGetItemModifier) BatchGetItem {
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (b BatchGetItem) Execute(ctx context.Context,
 	getter ezddb.BatchGetter, options ...func(*dynamodb.Options)) (*dynamodb.BatchGetItemOutput, error) {
 	if input, err := b.Invoke(ctx); err != nil {

@@ -166,7 +166,7 @@ func TestTransactWriteModify(t *testing.T) {
 	type testcase struct {
 		name      string
 		Operation stored.TransactWriteItemsCollection
-		modifier  stored.TransactionWriteItemsModifier
+		modifier  stored.TransactWriteItemsModifier
 		wantInput []*dynamodb.TransactWriteItemsInput
 		wantErr   bool
 	}

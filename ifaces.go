@@ -22,6 +22,11 @@ type TransactionWriter interface {
 		*dynamodb.TransactWriteItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactWriteItemsOutput, error)
 }
 
+// TransactionGetter implements the dynamodb Transact Get API.
+type TransactionGetter interface {
+	TransactGetItems(context.Context, *dynamodb.TransactGetItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error)
+}
+
 // Updater implements the dynamodb Update API.
 type Updater interface {
 	UpdateItem(context.Context, *dynamodb.UpdateItemInput, ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error)

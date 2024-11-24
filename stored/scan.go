@@ -7,21 +7,22 @@ import (
 	"github.com/nisimpson/ezddb"
 )
 
-// Scan functions generate dynamodb scan input data given some context.
+// Scan is a function that generates a [dynamodb.ScanInput] given a context.
+// It represents a scan operation that can be modified and executed.
 type Scan func(context.Context) (*dynamodb.ScanInput, error)
 
-// Invoke is a wrapper around the function invocation for semantic purposes.
+// Invoke generates a [dynamodb.ScanInput] given the provided context.
 func (q Scan) Invoke(ctx context.Context) (*dynamodb.ScanInput, error) {
 	return q(ctx)
 }
 
-// ScanModifier makes modifications to the scan input before the Operation is executed.
+// ScanModifier makes modifications to the scan input before the operation is executed.
 type ScanModifier interface {
 	// ModifyScanInput is invoked when this modifier is applied to the provided input.
 	ModifyScanInput(context.Context, *dynamodb.ScanInput) error
 }
 
-// Modify adds modifying functions to the Operation, transforming the input
+// Modify adds modifying functions to the operation, transforming the input
 // before it is executed.
 func (p Scan) Modify(modifiers ...ScanModifier) Scan {
 	mapper := func(ctx context.Context, input *dynamodb.ScanInput, mod ScanModifier) error {
@@ -32,7 +33,7 @@ func (p Scan) Modify(modifiers ...ScanModifier) Scan {
 	}
 }
 
-// Execute executes the Operation, returning the API result.
+// Execute executes the operation, returning the API result.
 func (p Scan) Execute(ctx context.Context,
 	Scanner ezddb.Scanner, options ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error) {
 	if input, err := p.Invoke(ctx); err != nil {
@@ -47,7 +48,7 @@ func (p Scan) Execute(ctx context.Context,
 // return false.
 type PageScanCallback = func(context.Context, *dynamodb.ScanOutput) bool
 
-// WithPagination creates a new Operation that exhastively retrieves items from the
+// WithPagination creates a [ScanExecutor] that exhastively retrieves items from the
 // database using the initial stored. Use the callback to access data from each
 // response.
 func (p Scan) WithPagination(callback PageScanCallback) ScanExecutor {
@@ -70,7 +71,8 @@ func (p Scan) WithPagination(callback PageScanCallback) ScanExecutor {
 	}
 }
 
-// ScanExecutor functions execute the dynamoDB scan items API.
+// ScanExecutor is a function type that executes a scan operation with pagination support.
+// It handles the execution of the scan and processing of paginated results.
 type ScanExecutor func(context.Context, ezddb.Scanner, ...func(*dynamodb.Options)) (*dynamodb.ScanOutput, error)
 
 // Execute invokes the scan items API using the provided scanner and options.

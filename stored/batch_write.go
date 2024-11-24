@@ -18,7 +18,7 @@ const (
 // BatchWriteItem functions generate dynamodb put input data given some context.
 type BatchWriteItem func(context.Context) (*dynamodb.BatchWriteItemInput, error)
 
-// NewBatchWriteOperation creates a new batch write Operation instance.
+// newBatchWriteOperation creates a new BatchWriteItem operation with default settings.
 func newBatchWriteOperation() BatchWriteItem {
 	return func(ctx context.Context) (*dynamodb.BatchWriteItemInput, error) {
 		return &dynamodb.BatchWriteItemInput{
@@ -27,8 +27,11 @@ func newBatchWriteOperation() BatchWriteItem {
 	}
 }
 
+// BatchWriteItemCollection is a collection of modifiers that can be applied to a batch write operation.
+// It provides methods for joining, modifying, and executing batch write operations.
 type BatchWriteItemCollection []BatchWriteItemModifier
 
+// Join combines all modifiers in the collection into a slice of BatchWriteItem operations.
 func (c BatchWriteItemCollection) Join() []BatchWriteItem {
 	batches := collection.Chunk(c, MaxBatchWriteSize)
 	ops := make([]BatchWriteItem, 0, len(batches))
@@ -40,6 +43,8 @@ func (c BatchWriteItemCollection) Join() []BatchWriteItem {
 	return ops
 }
 
+// Execute runs the operation on each [BatchWriteItem] sequentially,
+// merging the output.
 func (c BatchWriteItemCollection) Execute(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	ops := c.Join()
@@ -55,10 +60,12 @@ func (c BatchWriteItemCollection) Execute(ctx context.Context,
 	return c.mergeOutput(output), errors.Join(errs...)
 }
 
+// Modify applies additional modifiers to the collection and returns the modified collection.
 func (c BatchWriteItemCollection) Modify(modifiers ...BatchWriteItemModifier) BatchWriteItemCollection {
 	return append(c, modifiers...)
 }
 
+// ExecuteConcurrently executes all batch write operations in the collection concurrently.
 func (c BatchWriteItemCollection) ExecuteConcurrently(ctx context.Context,
 	writer ezddb.BatchWriter, options ...func(*dynamodb.Options)) (*dynamodb.BatchWriteItemOutput, error) {
 	ops := c.Join()
@@ -80,6 +87,7 @@ func (c BatchWriteItemCollection) ExecuteConcurrently(ctx context.Context,
 	return c.mergeOutput(output), errors.Join(errs...)
 }
 
+// mergeOutput combines multiple BatchWriteItemOutput instances into a single output.
 func (BatchWriteItemCollection) mergeOutput(items []*dynamodb.BatchWriteItemOutput) *dynamodb.BatchWriteItemOutput {
 	output := &dynamodb.BatchWriteItemOutput{
 		ItemCollectionMetrics: make(map[string][]types.ItemCollectionMetrics),
@@ -107,6 +115,7 @@ func (g BatchWriteItem) Invoke(ctx context.Context) (*dynamodb.BatchWriteItemInp
 }
 
 // BatchWriteItemModifier makes modifications to the input before the Operation is executed.
+// BatchWriteItemModifier defines the interface for types that can modify BatchWriteItem operations.
 type BatchWriteItemModifier interface {
 	// ModifyBatchWriteItemInput is invoked when this modifier is applied to the provided input.
 	ModifyBatchWriteItemInput(context.Context, *dynamodb.BatchWriteItemInput) error

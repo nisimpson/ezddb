@@ -6,24 +6,22 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
+	"github.com/nisimpson/ezddb"
 	"github.com/nisimpson/ezddb/internal/collection"
 )
 
 const (
+	// MaxTransactGetSize is the maximum number of items that can be retrieved in a single TransactGetItems operation.
 	// The maximum number of items that can be retrieved in a single call to TransactGetItems.
 	// This value is used to chunk the operations into batches of a maximum size.
 	MaxTransactGetOperations = 25
 )
 
-// TransactionGetter implements the dynamodb Transact Get API.
-type TransactionGetter interface {
-	TransactGetItems(context.Context, *dynamodb.TransactGetItemsInput, ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error)
-}
-
-// TransactGetItems functions generate dynamodb input data given some context.
+// TransactGetItems is a function that generates a [dynamodb.TransactGetItemsInput] given a context.
+// It represents a transactional get operation that can be modified and executed.
 type TransactGetItems func(context.Context) (*dynamodb.TransactGetItemsInput, error)
 
-// NewTransactionGetOperation returns a new transaction get Operation instance.
+// newTransactionGetOperation returns a new transaction get Operation instance.
 func newTransactionGetOperation() TransactGetItems {
 	return func(ctx context.Context) (*dynamodb.TransactGetItemsInput, error) {
 		return &dynamodb.TransactGetItemsInput{}, nil
@@ -37,6 +35,7 @@ func (t TransactGetItems) Invoke(ctx context.Context) (*dynamodb.TransactGetItem
 
 // TransactGetItemsCollection is a collection of TransactGetItems operations.
 // It provides methods to join and execute the operations.
+// TransactGetItemsCollection is a collection of modifiers that can be applied to a transactional get operation.
 type TransactGetItemsCollection []TransactGetItemsModifier
 
 // Join joins the TransactGetItems operations in the collection into batches of the maximum size.
@@ -68,7 +67,7 @@ func (c TransactGetItemsCollection) Invoke(ctx context.Context) ([]*dynamodb.Tra
 // Execute executes the [TransactGetItems] operations sequentially,
 // merging the output and errors into a single output.
 func (c TransactGetItemsCollection) Execute(ctx context.Context,
-	getter TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
+	getter ezddb.TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
 	ops := c.Join()
 	outs := make([]*dynamodb.TransactGetItemsOutput, 0, len(ops))
 	errs := make([]error, 0, len(ops))
@@ -86,7 +85,7 @@ func (c TransactGetItemsCollection) Execute(ctx context.Context,
 // ExecuteConcurrently executes the collection of operations concurrently, awaiting and returning
 // the resulting outputs.
 func (c TransactGetItemsCollection) ExecuteConcurrently(ctx context.Context,
-	getter TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
+	getter ezddb.TransactionGetter, options ...func(*dynamodb.Options)) ([]*dynamodb.TransactGetItemsOutput, error) {
 	ops := c.Join()
 	outs := make([]*dynamodb.TransactGetItemsOutput, len(ops))
 	errs := make([]error, len(ops))
@@ -109,13 +108,14 @@ func (c TransactGetItemsCollection) ExecuteConcurrently(ctx context.Context,
 	return outs, errors.Join(errs...)
 }
 
-// TransactGetItemsModifier makes modifications to the input before the Operation is executed.
+// TransactGetItemsModifier makes modifications to the input before the operation is executed.
 type TransactGetItemsModifier interface {
 	// ModifyTransactGetItemsInput is invoked when this modifier is applied to the provided input.
 	ModifyTransactGetItemsInput(context.Context, *dynamodb.TransactGetItemsInput) error
 }
 
-// TransactGetModifierFunc is a function that implements TransactionGetModifier.
+// TransactGetModifierFunc is a function type that implements the TransactGetItemsModifier interface.
+// It provides a convenient way to create TransactGetItemsModifiers from simple functions.
 type TransactGetModifierFunc modifier[dynamodb.TransactGetItemsInput]
 
 func (t TransactGetModifierFunc) ModifyTransactGetItemsInput(ctx context.Context, input *dynamodb.TransactGetItemsInput) error {
@@ -135,7 +135,7 @@ func (t TransactGetItems) Modify(modifiers ...TransactGetItemsModifier) Transact
 
 // Execute executes the Operation, returning the API result.
 func (t TransactGetItems) Execute(ctx context.Context,
-	getter TransactionGetter, options ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error) {
+	getter ezddb.TransactionGetter, options ...func(*dynamodb.Options)) (*dynamodb.TransactGetItemsOutput, error) {
 	if input, err := t.Invoke(ctx); err != nil {
 		return nil, err
 	} else {
