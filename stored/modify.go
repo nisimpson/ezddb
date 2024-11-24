@@ -34,7 +34,6 @@ func (w withLimit) value() *int32 {
 
 // WithLimit provides an input modifier for adjusting the number of items returned on a scan or query.
 // Non-positive values are ignored.
-// WithLimit creates a new modifier that sets the limit for query and scan operations.
 func WithLimit(value int) withLimit {
 	return withLimit(value)
 }
@@ -72,6 +71,7 @@ func WithLastToken(token string, provider ezddb.StartKeyProvider) withLastToken 
 	return withLastToken{token: token, provider: provider}
 }
 
+// BuildExpressionFunc is a function that can modify an expression builder.
 type BuildExpressionFunc = func(expression.Builder) (expression.Expression, error)
 
 // BuildExpression creates a DynamoDB expression from the provided builder.
@@ -86,14 +86,20 @@ type withExpressionBuilder struct {
 	builder expression.Builder
 }
 
+// WithExpressionBuilderFunc returns a modifier that applies the [expression.Builder]
+// to a Scan, Query, or Update stored procedure
 func WithExpressionBuilderFunc(builder expression.Builder, f BuildExpressionFunc) withExpressionBuilder {
 	return withExpressionBuilder{build: f, builder: builder}
 }
 
+// WithExpressionBuilder returns a modifier that applies the [expression.Builder] to a
+// Scan, Query, or Update stored procedure.
 func WithExpressionBuilder(builder expression.Builder) withExpressionBuilder {
 	return WithExpressionBuilderFunc(builder, BuildExpression)
 }
 
+// ModifyScanInput implements [QueryModifier], by applying the underlying expression builder
+// to the [dynamodb.QueryInput].
 func (w withExpressionBuilder) ModifyQueryInput(ctx context.Context, input *dynamodb.QueryInput) error {
 	expr, err := w.build(w.builder)
 	if err != nil {
@@ -107,19 +113,22 @@ func (w withExpressionBuilder) ModifyQueryInput(ctx context.Context, input *dyna
 	return nil
 }
 
-func (w withExpressionBuilder) ModifyScanInput(ctx context.Context, input *dynamodb.QueryInput) error {
+// ModifyScanInput implements [ScanModifier], by applying the underlying expression builder
+// to the [dynamodb.ScanInput].
+func (w withExpressionBuilder) ModifyScanInput(ctx context.Context, input *dynamodb.ScanInput) error {
 	expr, err := w.build(w.builder)
 	if err != nil {
 		return err
 	}
 	input.FilterExpression = expr.Filter()
-	input.KeyConditionExpression = expr.KeyCondition()
 	input.ProjectionExpression = expr.Projection()
 	input.ExpressionAttributeNames = expr.Names()
 	input.ExpressionAttributeValues = expr.Values()
 	return nil
 }
 
+// ModifyUpdateItemInput implements [UpdateItemModifier], by applying the underlying expression builder
+// to the [dynamodb.UpdateItemInput].
 func (w withExpressionBuilder) ModifyUpdateItemInput(ctx context.Context, input *dynamodb.UpdateItemInput) error {
 	expr, err := w.build(w.builder)
 	if err != nil {

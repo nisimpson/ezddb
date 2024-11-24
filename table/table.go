@@ -471,19 +471,19 @@ func (t Table[T]) Update(id T, strategy UpdateStrategy, opts ...func(*Options)) 
 	}, t.Options)
 }
 
-// UpdateAttributeFunc is a function that modifies an [expression.UpdateBuilder].
-type UpdateAttributeFunc = func(update expression.UpdateBuilder) expression.UpdateBuilder
+// UpdateAttribute is a function that modifies an [expression.UpdateBuilder].
+type UpdateAttribute = func(update expression.UpdateBuilder) expression.UpdateBuilder
 
-// UpdateDataAttributes provides a structure for updating specific fields, or attributes
+// UpdateAttributes provides a structure for updating specific fields, or attributes
 // on a data [Record].
-type UpdateDataAttributes struct {
+type UpdateAttributes struct {
 	Attributes []string // The list of attributes to update on the [Record].
 
 	// A mapping of attributes to their associated attribute updater function.
-	Updates map[string]UpdateAttributeFunc
+	Updates map[string]UpdateAttribute
 }
 
-func (u UpdateDataAttributes) modify(op stored.UpdateItem, opts Options) stored.UpdateItem {
+func (u UpdateAttributes) modify(op stored.UpdateItem, opts Options) stored.UpdateItem {
 	var (
 		builder = expression.NewBuilder()
 		update  = updateTimestamp(opts.Tick().UTC())

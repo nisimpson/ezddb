@@ -510,9 +510,9 @@ func TestUpdateStrategies(t *testing.T) {
 		now := time.Now()
 		table.Options.Tick = func() time.Time { return now }
 
-		update := UpdateDataAttributes{
+		update := UpdateAttributes{
 			Attributes: []string{"name", "age", "foo"},
-			Updates: map[string]UpdateAttributeFunc{
+			Updates: map[string]UpdateAttribute{
 				"name": func(update expression.UpdateBuilder) expression.UpdateBuilder {
 					return update.Set(table.DataAttribute("name").NameBuilder(), expression.Value("new-name"))
 				},
