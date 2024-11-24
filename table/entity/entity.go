@@ -3,8 +3,8 @@ package entity
 import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
+	"github.com/nisimpson/ezddb/query"
 	"github.com/nisimpson/ezddb/table"
 )
 
@@ -88,9 +88,9 @@ type record[T Data] struct {
 }
 
 var (
-	AttributeRelationship  = filter.AttributeOf("data", "gRelationship")
-	AttributeStartEntityID = filter.AttributeOf("data", "gStartId")
-	AttributeEndEntityID   = filter.AttributeOf("data", "gEndId")
+	AttributeRelationship  = query.Attribute("data", "gRelationship")
+	AttributeStartEntityID = query.Attribute("data", "gStartId")
+	AttributeEndEntityID   = query.Attribute("data", "gEndId")
 )
 
 func newIdentityRelationship(e Data) record[Data] {
@@ -251,14 +251,14 @@ type ListEntitiesQuery struct {
 // ListEntities searches for and returns a list entities of the same entity type within the [Graph].
 // Modify or extend the query options using a [ListEntitiesQuery] function.
 func (g Graph) ListEntities(itemType string, opts ...func(*ListEntitiesQuery)) operation.Query {
-	query := ListEntitiesQuery{}
-	query.PartitionKeyValue = itemType
-	query.Filter = filter.Identity().Condition()
+	q := ListEntitiesQuery{}
+	q.PartitionKeyValue = itemType
+	q.Filter = query.Identity().Condition()
 
 	for _, o := range opts {
-		o(&query)
+		o(&q)
 	}
-	return g.Query(table.CollectionQuery{QueryOptions: query.QueryOptions}, query.Options...)
+	return g.Query(table.CollectionQuery{QueryOptions: q.QueryOptions}, q.Options...)
 }
 
 // AddRelationships adds the relationships defined by the target [DataWithRelationships].
@@ -327,43 +327,43 @@ func (g Graph) ListRelationships(e DataWithRelationships, opts ...func(*ListRela
 	)
 
 	var (
-		query = ListRelationshipsQuery{
+		q = ListRelationshipsQuery{
 			QueryOptions: table.QueryOptions{
-				Filter: filter.Identity().Condition(),
+				Filter: query.Identity().Condition(),
 			},
 		}
 	)
 
 	for _, o := range opts {
-		o(&query)
+		o(&q)
 	}
 
-	if query.Reverse {
-		lookup := table.ReverseLookupQuery{QueryOptions: query.QueryOptions}
+	if q.Reverse {
+		lookup := table.ReverseLookupQuery{QueryOptions: q.QueryOptions}
 		lookup.PartitionKeyValue = node.SK
-		if query.Relationship != "" {
-			def := defs[query.Relationship]
+		if q.Relationship != "" {
+			def := defs[q.Relationship]
 			lookup.SortKeyPrefix = def.SortKey
 		}
 		strategy = lookup
 	} else {
-		lookup := table.LookupQuery{QueryOptions: query.QueryOptions}
+		lookup := table.LookupQuery{QueryOptions: q.QueryOptions}
 		lookup.PartitionKeyValue = node.HK
-		if query.Relationship != "" {
+		if q.Relationship != "" {
 			lookup.Filter = lookup.Filter.And(
-				filter.HasSubstring(
+				query.HasSubstring(
 					AttributeRelationship,
-					query.Relationship).
+					q.Relationship).
 					Condition(),
 			)
 		}
 		strategy = lookup
 	}
 
-	return g.Query(strategy, query.Options...)
+	return g.Query(strategy, q.Options...)
 }
 
 // EntityAttribute returns a [Filter] that runs conditions on the embedded [Entity]
-func (Graph) EntityAttribute(name string) filter.Attribute {
-	return filter.AttributeOf("data", "value", name)
+func (Graph) EntityAttribute(name string) query.ItemAttribute {
+	return query.Attribute("data", "value", name)
 }

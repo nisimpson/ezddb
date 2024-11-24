@@ -1,4 +1,4 @@
-package filter
+package query
 
 import (
 	"errors"
@@ -26,100 +26,164 @@ const (
 	OperationTrue             operation = "true"
 )
 
-type attribute interface {
-	name() string
-}
+// ItemAttribute is unique field on an item in the DynamoDB table. The literal value is
+// used as the attribute name, and follows the same conventions as the [expression.NameBuilder].
+type ItemAttribute string
 
-type Attribute string
+func (a ItemAttribute) name() string { return string(a) }
 
-func (a Attribute) name() string                 { return string(a) }
-func (a Attribute) Key() expression.KeyBuilder   { return expression.Key(string(a)) }
-func (a Attribute) Name() expression.NameBuilder { return expression.Name(string(a)) }
+// Returns the attribute name as an [expression.KeyBuilder]. Used as an escape hatch for
+// using the standard aws-sdk-go-v2 expression builder.
+func (a ItemAttribute) KeyBuilder() expression.KeyBuilder { return expression.Key(a.name()) }
 
-func AttributeOf(key ...string) Attribute {
+// Returns the attribute name as an [expression.NameBuilder]. Used as an escape hatch for
+// using the standard aws-sdk-go-v2 expression builder.
+func (a ItemAttribute) NameBuilder() expression.NameBuilder { return expression.Name(a.name()) }
+
+// Matches if the attribute value equals the target value.
+func (a ItemAttribute) Equals(value any) Builder { return Equals(a, value) }
+
+// Matches if the attribute value is not equal to the target value.
+func (a ItemAttribute) NotEquals(value any) Builder { return NotEquals(a, value) }
+
+// Matches if the attribute value is less than the target value.
+func (a ItemAttribute) LessThan(value any) Builder { return LessThan(a, value) }
+
+// Matches if the attribute value is less than or equal to the target value.
+func (a ItemAttribute) LessThanEqual(value any) Builder { return LessThanEqual(a, value) }
+
+// Matches if the attribute value is greater than the target value.
+func (a ItemAttribute) GreaterThan(value any) Builder { return GreaterThan(a, value) }
+
+// Matches if the attribute value is greater than or equal to the target value.
+func (a ItemAttribute) GreaterThanEqual(value any) Builder { return GreaterThanEqual(a, value) }
+
+// Matches if the attribute does exist on the item.
+func (a ItemAttribute) Exists() Builder { return Exists(a) }
+
+// Matches if the attribute does not exist on the item.
+func (a ItemAttribute) NotExists() Builder { return NotExists(a) }
+
+// Matches if the attribute value has a substring equal to the substring.
+func (a ItemAttribute) HasSubstring(substr string) Builder { return HasSubstring(a, substr) }
+
+// Matches if the attribute value -- a list or set -- contains any of the items in the list.
+func (a ItemAttribute) Contains(items ...any) Builder { return Contains(a, items...) }
+
+// Matches if attribute value -- a list or set -- intersects with the provided list of items.
+func (a ItemAttribute) Intersects(items ...any) Builder { return Intersects(a, items...) }
+
+// Matches if the attribute value has a prefix equal to the substring.
+func (a ItemAttribute) HasPrefix(substr string) Builder { return HasPrefix(a, substr) }
+
+// Matches if the attribute value is equal to any of the items in the list.
+func (a ItemAttribute) IsOneOf(items ...any) Builder { return IsOneOf(a, items...) }
+
+// Matches if the attribute value is lexographically between start and end.
+func (a ItemAttribute) IsBetween(start, end any) Builder { return IsBetween(a, start, end) }
+
+// Matches if attribute timestamp (RFC3339) is equal to t.
+func (a ItemAttribute) TimestampEquals(t time.Time) Builder { return TimestampEquals(a, t) }
+
+// Matches if attribute timestamp (RFC3339) is between start s and end e.
+func (a ItemAttribute) TimestampBetween(s, e time.Time) Builder { return TimestampBetween(a, s, e) }
+
+// Matches if attribute TTL is on or after t.
+func (a ItemAttribute) ExpiresAfter(t time.Time) Builder { return ExpiresAfter(a, t) }
+
+// ExpiresAfter, relative to the current time.
+func (a ItemAttribute) ExpiresIn(d time.Duration) Builder { return ExpiresIn(a, d) }
+
+// ExpiresAfterUTC, relative to the current time.
+func (a ItemAttribute) ExpiresInUTC(d time.Duration) Builder { return ExpiresInUTC(a, d) }
+
+// Attribute creates a new [ItemAttribute]. Each subsequent key parameter is joined by the
+// period (".") delimiter to access nested attributes in queries or updates.
+func Attribute(key ...string) ItemAttribute {
 	path := strings.Join(key, ".")
-	return Attribute(path)
+	return ItemAttribute(path)
 }
 
+// Identity returns query criteria that always evaluates to true.
 func Identity() Builder {
 	return newBuilder(unaryCriteria{Operation: OperationTrue})
 }
 
-func Equals[U any](a attribute, value U) Builder {
+func Equals[U any](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationEqual,
 		Value:     value,
 	})
 }
 
-func NotEquals[U any](a attribute, value U) Builder {
+func NotEquals[U any](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationNotEqual,
 		Value:     value,
 	})
 }
 
-func LessThan[U comparable](a attribute, value U) Builder {
+func LessThan[U comparable](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationLessThan,
 		Value:     value,
 	})
 }
 
-func LessThanEqual[U comparable](a attribute, value U) Builder {
+func LessThanEqual[U comparable](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationLessThanEqual,
 		Value:     value,
 	})
 }
 
-func GreaterThan[U comparable](a attribute, value U) Builder {
+func GreaterThan[U comparable](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationGreaterThanEqual,
 		Value:     value,
 	})
 }
 
-func GreaterThanEqual[U comparable](a attribute, value U) Builder {
+func GreaterThanEqual[U comparable](a ItemAttribute, value U) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationGreaterThanEqual,
 		Value:     value,
 	})
 }
 
-func Exists(a Attribute) Builder {
+func Exists(a ItemAttribute) Builder {
 	return newBuilder(unaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationExists,
 	})
 }
 
-func NotExists(a Attribute) Builder {
+func NotExists(a ItemAttribute) Builder {
 	return newBuilder(unaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationNotExists,
 	})
 }
 
-func HasSubstring(a attribute, substr string) Builder {
+func HasSubstring(a ItemAttribute, substr string) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationContains,
 		Value:     substr,
 	})
 }
 
-func Contains[U any](a attribute, items ...U) Builder {
+func Contains[U any](a ItemAttribute, items ...U) Builder {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
-			Attribute: a.name(),
+			attribute: a.name(),
 			Operation: OperationContains,
 			Value:     item,
 		})
@@ -134,11 +198,11 @@ func Contains[U any](a attribute, items ...U) Builder {
 	return curr
 }
 
-func Intersects[U any](a attribute, items ...U) Builder {
+func Intersects[U any](a ItemAttribute, items ...U) Builder {
 	var curr Builder
 	for idx, item := range items {
 		expr := newBuilder(binaryCriteria{
-			Attribute: a.name(),
+			attribute: a.name(),
 			Operation: OperationContains,
 			Value:     item,
 		})
@@ -153,44 +217,52 @@ func Intersects[U any](a attribute, items ...U) Builder {
 	return curr
 }
 
-func HasPrefix(a attribute, prefix string) Builder {
+func HasPrefix(a ItemAttribute, prefix string) Builder {
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationBeginsWith,
 		Value:     prefix,
 	})
 }
 
-func IsOneOf[U any](a attribute, items ...U) Builder {
+func IsOneOf[U any](a ItemAttribute, items ...U) Builder {
 	anyitems := make([]any, 0, len(items))
 	for _, item := range items {
 		anyitems = append(anyitems, item)
 	}
 	return newBuilder(binaryCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Operation: OperationIn,
 		Value:     anyitems,
 	})
 }
 
-func IsBetween[U comparable](a attribute, left U, right U) Builder {
+func IsBetween[U comparable](a ItemAttribute, left U, right U) Builder {
 	return newBuilder(betweenCriteria{
-		Attribute: a.name(),
+		attribute: a.name(),
 		Left:      left,
 		Right:     right,
 	})
 }
 
-func TimestampEquals(a attribute, value time.Time) Builder {
+func TimestampEquals(a ItemAttribute, value time.Time) Builder {
 	return Equals(a, value.Format(time.RFC3339))
 }
 
-func TimestampBetween(a attribute, start, end time.Time) Builder {
+func TimestampBetween(a ItemAttribute, start, end time.Time) Builder {
 	return IsBetween(a, start.Format(time.RFC3339), end.Format(time.RFC3339))
 }
 
-func ExpiresAfter(a attribute, dt time.Time) Builder {
-	return LessThanEqual(a, dt.Unix())
+func ExpiresAfter(a ItemAttribute, dt time.Time) Builder {
+	return LessThanEqual(a, dt.UTC().Unix())
+}
+
+func ExpiresIn(a ItemAttribute, d time.Duration) Builder {
+	return ExpiresAfter(a, time.Now().Add(d))
+}
+
+func ExpiresInUTC(a ItemAttribute, d time.Duration) Builder {
+	return ExpiresAfter(a, time.Now().UTC().Add(d))
 }
 
 type Expression interface {
@@ -209,13 +281,13 @@ func KeyCondition(e Expression) expression.KeyConditionBuilder {
 }
 
 type binaryCriteria struct {
-	Attribute string
+	attribute string
 	Operation operation
 	Value     any
 }
 
 func (b binaryCriteria) String() string {
-	return fmt.Sprintf("('%s' %s '%v')", b.Attribute, b.Operation, b.Value)
+	return fmt.Sprintf("('%s' %s '%v')", b.attribute, b.Operation, b.Value)
 }
 
 type binaryConditionFunc = func(expression.OperandBuilder, expression.OperandBuilder) expression.ConditionBuilder
@@ -232,13 +304,13 @@ var comparableConditions = map[operation]binaryConditionFunc{
 func (b binaryCriteria) condition() (cb expression.ConditionBuilder) {
 	if b.Operation == OperationBeginsWith {
 		return expression.BeginsWith(
-			expression.Name(b.Attribute),
+			expression.Name(b.attribute),
 			b.Value.(string),
 		)
 	}
 	if b.Operation == OperationContains {
 		return expression.Contains(
-			expression.Name(b.Attribute),
+			expression.Name(b.attribute),
 			b.Value,
 		)
 	}
@@ -254,7 +326,7 @@ func (b binaryCriteria) condition() (cb expression.ConditionBuilder) {
 			others = values[1:]
 		}
 		return expression.In(
-			expression.Name(b.Attribute),
+			expression.Name(b.attribute),
 			right,
 			others...,
 		)
@@ -262,7 +334,7 @@ func (b binaryCriteria) condition() (cb expression.ConditionBuilder) {
 
 	expr, ok := comparableConditions[b.Operation]
 	if ok {
-		return expr(expression.Name(b.Attribute), expression.Value(b.Value))
+		return expr(expression.Name(b.attribute), expression.Value(b.Value))
 	}
 
 	return
@@ -281,33 +353,33 @@ var comparableKeyConditions = map[operation]binaryKeyConditionFunc{
 func (b binaryCriteria) keyCondition() (cb expression.KeyConditionBuilder) {
 	if b.Operation == OperationBeginsWith {
 		return expression.KeyBeginsWith(
-			expression.Key(b.Attribute),
+			expression.Key(b.attribute),
 			b.Value.(string),
 		)
 	}
 	expr, ok := comparableKeyConditions[b.Operation]
 	if ok {
-		return expr(expression.Key(b.Attribute), expression.Value(b.Value))
+		return expr(expression.Key(b.attribute), expression.Value(b.Value))
 	}
 
 	return
 }
 
 type unaryCriteria struct {
-	Attribute string
+	attribute string
 	Operation operation
 }
 
 func (u unaryCriteria) String() string {
-	return fmt.Sprintf("%s('%s')", u.Operation, u.Attribute)
+	return fmt.Sprintf("%s('%s')", u.Operation, u.attribute)
 }
 
 func (u unaryCriteria) condition() (cb expression.ConditionBuilder) {
 	if u.Operation == OperationExists {
-		return expression.AttributeExists(expression.Name(u.Attribute))
+		return expression.AttributeExists(expression.Name(u.attribute))
 	}
 	if u.Operation == OperationNotExists {
-		return expression.AttributeNotExists(expression.Name(u.Attribute))
+		return expression.AttributeNotExists(expression.Name(u.attribute))
 	}
 	if u.Operation == OperationTrue {
 		return expression.Equal(expression.Value(1), expression.Value(1))
@@ -320,18 +392,18 @@ func (u unaryCriteria) keyCondition() (cb expression.KeyConditionBuilder) {
 }
 
 type betweenCriteria struct {
-	Attribute string
+	attribute string
 	Left      any
 	Right     any
 }
 
 func (b betweenCriteria) String() string {
-	return fmt.Sprintf("between('%s','%v','%v')", b.Attribute, b.Left, b.Right)
+	return fmt.Sprintf("between('%s','%v','%v')", b.attribute, b.Left, b.Right)
 }
 
 func (b betweenCriteria) condition() (cb expression.ConditionBuilder) {
 	return expression.Between(
-		expression.Name(b.Attribute),
+		expression.Name(b.attribute),
 		expression.Value(b.Left),
 		expression.Value(b.Right),
 	)
@@ -339,7 +411,7 @@ func (b betweenCriteria) condition() (cb expression.ConditionBuilder) {
 
 func (b betweenCriteria) keyCondition() (cb expression.KeyConditionBuilder) {
 	return expression.KeyBetween(
-		expression.Key(b.Attribute),
+		expression.Key(b.attribute),
 		expression.Value(b.Left),
 		expression.Value(b.Right),
 	)

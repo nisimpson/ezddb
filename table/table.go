@@ -1,8 +1,10 @@
 package table
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/gob"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,9 +13,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/nisimpson/ezddb"
-	"github.com/nisimpson/ezddb/filter"
 	"github.com/nisimpson/ezddb/operation"
+	"github.com/nisimpson/ezddb/query"
 )
+
+func init() {
+	// register string attribute values for encoding and decoding of pagination
+	// partition/sort keys.
+	gob.Register(&types.AttributeValueMemberS{})
+}
 
 const (
 	DefaultDelimiter = ":"
@@ -30,14 +38,14 @@ const (
 )
 
 var (
-	AttributeHK            = filter.AttributeOf(AttributeNameHK)
-	AttributeSK            = filter.AttributeOf(AttributeNameSK)
-	AttributeCreatedAt     = filter.AttributeOf(AttributeNameCreatedAt)
-	AttributeUpdatedAt     = filter.AttributeOf(AttributeNameUpdatedAt)
-	AttributeExpires       = filter.AttributeOf(AttributeNameExpires)
-	AttributeItemType      = filter.AttributeOf(AttributeNameItemType)
-	AttributeCollection    = filter.AttributeOf(AttributeNameCollectionSortKey)
-	AttributeReverseLookup = filter.AttributeOf(AttributeNameReverseLookupSortKey)
+	AttributeHK            = query.Attribute(AttributeNameHK)
+	AttributeSK            = query.Attribute(AttributeNameSK)
+	AttributeCreatedAt     = query.Attribute(AttributeNameCreatedAt)
+	AttributeUpdatedAt     = query.Attribute(AttributeNameUpdatedAt)
+	AttributeExpires       = query.Attribute(AttributeNameExpires)
+	AttributeItemType      = query.Attribute(AttributeNameItemType)
+	AttributeCollection    = query.Attribute(AttributeNameCollectionSortKey)
+	AttributeReverseLookup = query.Attribute(AttributeNameReverseLookupSortKey)
 )
 
 // Record represents a DynamoDB item in a [Table] with standard metadata
@@ -257,12 +265,12 @@ func (p Paginator) GetStartKey(ctx context.Context, token string) (ezddb.Item, e
 	panicOnErr(err, "unmarshal page record from token '%s'", token)
 
 	var (
-		data = record.Data.StartKey
+		buf  = bytes.NewBuffer(record.Data.StartKey)
 		item = ezddb.Item{}
 	)
 
-	err = json.Unmarshal(data, &item)
-	panicOnErr(err, "unmarshal page token '%s'", token)
+	err = gob.NewDecoder(buf).Decode(&item)
+	panicOnErr(err, "decode page token '%s'", token)
 
 	return item, nil
 }
@@ -273,15 +281,16 @@ func (p Paginator) GetStartKeyToken(ctx context.Context, startKey map[string]typ
 		return "", nil
 	}
 
-	data, err := json.Marshal(startKey)
-	panicOnErr(err, "get start key: marshal")
+	buf := bytes.Buffer{}
+	err := gob.NewEncoder(&buf).Encode(startKey)
+	panicOnErr(err, "get start key: encode")
 
 	var (
 		id    = p.options.IDGenerator.GenerateID(ctx)
 		table = newTable[page](p.options)
 	)
 
-	_, err = table.Put(page{ID: id, StartKey: data}).Execute(ctx, p.client)
+	_, err = table.Put(page{ID: id, StartKey: buf.Bytes()}).Execute(ctx, p.client)
 	return id, err
 }
 
@@ -550,8 +559,8 @@ func (t Table[T]) Unmarshal(item ezddb.Item, opts ...func(*Options)) (Record[T],
 	return record, err
 }
 
-func (t Table[T]) DataAttribute(name string) filter.Attribute {
-	return filter.AttributeOf("data", name)
+func (t Table[T]) DataAttribute(name string) query.ItemAttribute {
+	return query.Attribute("data", name)
 }
 
 // QueryOptions configure constraints on [Table] queries.
@@ -678,10 +687,16 @@ func sortKeyStartsWith(prefix string) expression.KeyConditionBuilder {
 }
 
 func hashKeyEquals(value string) expression.KeyConditionBuilder {
+	if value == "" {
+		panic(errors.New("hash key cannot be empty"))
+	}
 	return expression.KeyEqual(expression.Key(AttributeNameHK), expression.Value(value))
 }
 
 func sortKeyEquals(value string) expression.KeyConditionBuilder {
+	if value == "" {
+		panic(errors.New("sort key cannot be empty"))
+	}
 	return expression.KeyEqual(expression.Key(AttributeNameSK), expression.Value(value))
 }
 
@@ -690,10 +705,19 @@ func reverseLookupSortKeyStartsWith(prefix string) expression.KeyConditionBuilde
 }
 
 func itemTypeEquals(value string) expression.KeyConditionBuilder {
+	if value == "" {
+		panic(errors.New("item type cannot be empty"))
+	}
 	return expression.KeyEqual(expression.Key(AttributeNameItemType), expression.Value(value))
 }
 
 func collectionSortKeyBetweenDates(start, end time.Time) expression.KeyConditionBuilder {
+	if start.After(end) {
+		panic(errors.New("start date must be before end date"))
+	}
+	if end.IsZero() {
+		panic(errors.New("end date must be non-zero"))
+	}
 	return expression.KeyBetween(
 		expression.Key(AttributeNameCollectionSortKey),
 		expression.Value(start.Format(time.RFC3339Nano)),

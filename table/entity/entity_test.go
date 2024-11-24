@@ -10,9 +10,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb/query"
 	"github.com/nisimpson/ezddb/table"
 	"github.com/nisimpson/ezddb/table/entity"
 	"github.com/oklog/ulid/v2"
@@ -402,7 +402,7 @@ func TestGraphIntegration(t *testing.T) {
 			assert.Equal(t, "customer-1", gotCustomer.ID)
 
 			input, err = g.ListEntities("customer", func(leq *entity.ListEntitiesQuery) {
-				leq.Filter = leq.Filter.And(g.EntityAttribute("Name").Name().Equal(expression.Value("Bob")))
+				leq.Filter = leq.Filter.And(query.Equals(g.EntityAttribute("Name"), "Bob").Condition())
 			}).Invoke(context.TODO())
 			assert.NoError(t, err)
 			data, err = json.MarshalIndent(input, "", " ")

@@ -1,8 +1,10 @@
 package table
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +14,44 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/nisimpson/ezddb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
+
+type MockPaginator struct {
+	mock.Mock
+}
+
+func (m *MockPaginator) GetStartKey(ctx context.Context, token string) (ezddb.StartKey, error) {
+	args := m.Called(ctx, token)
+	return args.Get(0).(ezddb.StartKey), args.Error(1)
+}
+
+func (m *MockPaginator) GetStartKeyToken(ctx context.Context, startKey ezddb.Item) (string, error) {
+	args := m.Called(ctx, startKey)
+	return args.String(0), args.Error(1)
+}
+
+func (m *MockPaginator) ReturnsToken(token string) *MockPaginator {
+	m.On("GetStartKeyToken", mock.Anything, mock.Anything).Return(token, nil)
+	return m
+}
+
+func (m *MockPaginator) ReturnsStartKey(key ezddb.Item) *MockPaginator {
+	m.On("GetStartKey", mock.Anything, mock.Anything).Return(key, nil)
+	return m
+}
+
+type MockIDGenerator struct {
+	mock.Mock
+}
+
+func (m *MockIDGenerator) GenerateID(ctx context.Context) string {
+	args := m.Called(ctx)
+	return args.String(0)
+}
 
 // MockDynamoClient implements DynamoGetPutter for testing
 type MockDynamoClient struct {
@@ -35,6 +71,11 @@ func (m *MockDynamoClient) PutItem(ctx context.Context, params *dynamodb.PutItem
 func (m *MockDynamoClient) DeleteItem(ctx context.Context, params *dynamodb.DeleteItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.DeleteItemOutput, error) {
 	args := m.Called(ctx, params, optFns)
 	return args.Get(0).(*dynamodb.DeleteItemOutput), args.Error(1)
+}
+
+func (m *MockDynamoClient) UpdateItem(ctx context.Context, params *dynamodb.UpdateItemInput, optFns ...func(*dynamodb.Options)) (*dynamodb.UpdateItemOutput, error) {
+	args := m.Called(ctx, params, optFns)
+	return args.Get(0).(*dynamodb.UpdateItemOutput), args.Error(1)
 }
 
 func (m *MockDynamoClient) Query(ctx context.Context, params *dynamodb.QueryInput, optFns ...func(*dynamodb.Options)) (*dynamodb.QueryOutput, error) {
@@ -91,24 +132,30 @@ func TestMarshalRecord(t *testing.T) {
 		assert.Equal(t, "data#", record.SK)
 		assert.Equal(t, "test", record.ItemType)
 		assert.NotEmpty(t, record.GSI2SK)
-		createdAtTime, err := time.Parse(time.RFC3339, record.GSI2SK)
-		require.NoError(t, err)
-		assert.Equal(t, now.UTC(), createdAtTime.UTC())
+		formatted := now.UTC().Format(time.RFC3339)
+		assert.Equal(t, formatted, record.GSI2SK)
 	})
 	t.Run("marshals record with default options", func(t *testing.T) {
 		data := TestData{ID: "test-id", Name: "test-name"}
 		now := time.Now()
 
 		record := MarshalRecord(data, func(o *MarshalOptions) {
+			o.ItemType = "test"
+			o.HashKeyID = "test-id"
+			o.HashKeyPrefix = "test"
+			o.Delimiter = "#"
+			o.SortKeyPrefix = "data"
+			o.SupportReverseLookup = true
 			o.Tick = func() time.Time { return now }
 		})
 
 		assert.Equal(t, "test#test-id", record.HK)
 		assert.Equal(t, "data#", record.SK)
 		assert.Equal(t, "test", record.ItemType)
-		assert.Equal(t, now, record.CreatedAt)
-		assert.Equal(t, now, record.UpdatedAt)
+		assert.Equal(t, now.UTC(), record.CreatedAt)
+		assert.Equal(t, now.UTC(), record.UpdatedAt)
 		assert.Equal(t, data, record.Data)
+		assert.Equal(t, record.HK, record.GSI1SK)
 	})
 
 	t.Run("marshals record with custom options", func(t *testing.T) {
@@ -118,8 +165,10 @@ func TestMarshalRecord(t *testing.T) {
 
 		record := MarshalRecord(data, func(o *MarshalOptions) {
 			o.Tick = func() time.Time { return now }
-			o.HashKeyPrefix = "custom#"
-			o.SortKeyPrefix = "sort#"
+			o.HashKeyPrefix = "custom"
+			o.HashKeyID = "test-id"
+			o.SortKeyPrefix = "sort"
+			o.Delimiter = "#"
 			o.ExpirationDate = expires
 			o.SupportReverseLookup = true
 			o.ReverseLookupSortKey = "reverse#key"
@@ -212,6 +261,12 @@ func TestTable(t *testing.T) {
 		assert.NotNil(t, table.Options.Tick)
 	})
 
+	t.Run("New paginator", func(t *testing.T) {
+		table := New[TestData]("test-table")
+		paginator := table.Paginator(&MockDynamoClient{})
+		assert.NotNil(t, paginator)
+	})
+
 	t.Run("New applies custom options", func(t *testing.T) {
 		customClock := func() time.Time { return time.Time{} }
 		customTableName := "custom-table"
@@ -266,9 +321,33 @@ func TestPaginatorEncoding(t *testing.T) {
 			"gsi1sk": &types.AttributeValueMemberS{Value: "index#789"},
 		}
 
+		buf := bytes.Buffer{}
+		err := gob.NewEncoder(&buf).Encode(startKey)
+		require.NoError(t, err)
+
+		gen := &MockIDGenerator{}
+		gen.On("GenerateID", mock.Anything).Return("123")
+
+		client := &MockDynamoClient{}
+		client.On("PutItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.PutItemOutput{}, nil)
+		client.On("GetItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{
+			Item: map[string]types.AttributeValue{
+				"data": &types.AttributeValueMemberM{
+					Value: map[string]types.AttributeValue{
+						"ID":       &types.AttributeValueMemberS{Value: "123"},
+						"StartKey": &types.AttributeValueMemberB{Value: buf.Bytes()},
+					},
+				},
+			},
+		}, nil)
+
 		// Create paginator
 		p := Paginator{
-			options: Options{TableName: "test-table"},
+			client: client,
+			options: Options{
+				TableName:   "test-table",
+				IDGenerator: gen,
+			},
 		}
 
 		// Get token
@@ -319,23 +398,55 @@ func TestPaginatorEncoding(t *testing.T) {
 		assert.Equal(t, pageData.StartKey, decodedPage.StartKey)
 	})
 
-	t.Run("handles corrupted token", func(t *testing.T) {
+	t.Run("panics on corrupted token", func(t *testing.T) {
 		p := Paginator{
 			options: Options{TableName: "test-table"},
 		}
 
 		ctx := context.Background()
-		_, err := p.GetStartKey(ctx, "invalid base64!")
-		require.Error(t, err)
+		assert.Panics(t, func() {
+			p.GetStartKey(ctx, "invalid base64!")
+		})
 	})
 }
 
 func TestPaginator(t *testing.T) {
-	t.Run("GetStartKey with valid token", func(t *testing.T) {
-		p := Paginator{
-			options: Options{TableName: "test-table"},
-		}
+	// Create a realistic start key
+	startKey := map[string]types.AttributeValue{
+		"hk":     &types.AttributeValueMemberS{Value: "test#123"},
+		"sk":     &types.AttributeValueMemberS{Value: "data#456"},
+		"gsi1sk": &types.AttributeValueMemberS{Value: "index#789"},
+	}
 
+	buf := bytes.Buffer{}
+	err := gob.NewEncoder(&buf).Encode(startKey)
+	require.NoError(t, err)
+
+	gen := &MockIDGenerator{}
+	gen.On("GenerateID", mock.Anything).Return("123")
+	client := &MockDynamoClient{}
+	client.On("PutItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.PutItemOutput{}, nil)
+	client.On("GetItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{
+		Item: map[string]types.AttributeValue{
+			"data": &types.AttributeValueMemberM{
+				Value: map[string]types.AttributeValue{
+					"ID":       &types.AttributeValueMemberS{Value: "123"},
+					"StartKey": &types.AttributeValueMemberB{Value: buf.Bytes()},
+				},
+			},
+		},
+	}, nil)
+
+	// Create paginator
+	p := Paginator{
+		client: client,
+		options: Options{
+			TableName:   "test-table",
+			IDGenerator: gen,
+		},
+	}
+
+	t.Run("GetStartKey with valid token", func(t *testing.T) {
 		ctx := context.Background()
 		key, err := p.GetStartKey(ctx, "validtoken")
 		require.NoError(t, err)
@@ -343,10 +454,6 @@ func TestPaginator(t *testing.T) {
 	})
 
 	t.Run("GetStartKey with empty token", func(t *testing.T) {
-		p := Paginator{
-			options: Options{TableName: "test-table"},
-		}
-
 		ctx := context.Background()
 		key, err := p.GetStartKey(ctx, "")
 		require.NoError(t, err)
@@ -354,20 +461,27 @@ func TestPaginator(t *testing.T) {
 	})
 
 	t.Run("GetStartKey with invalid token", func(t *testing.T) {
-		p := Paginator{
-			options: Options{TableName: "test-table"},
-		}
-
 		ctx := context.Background()
-		_, err := p.GetStartKey(ctx, "invalid-token")
-		require.Error(t, err)
+		failclient := &MockDynamoClient{}
+		failclient.On("GetItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{}, assert.AnError)
+		t.Cleanup(func() { p.client = client })
+		p.client = failclient
+		assert.Panics(t, func() {
+			p.GetStartKey(ctx, "invalid-token")
+		})
+	})
+
+	t.Run("GetStartKey with no start key found", func(t *testing.T) {
+		noKeyClient := &MockDynamoClient{}
+		noKeyClient.On("GetItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.GetItemOutput{}, nil)
+		t.Cleanup(func() { p.client = client })
+		p.client = noKeyClient
+		key, err := p.GetStartKey(context.Background(), "token")
+		assert.NoError(t, err)
+		assert.Nil(t, key)
 	})
 
 	t.Run("GetStartKeyToken with valid start key", func(t *testing.T) {
-		p := Paginator{
-			options: Options{TableName: "test-table"},
-		}
-
 		ctx := context.Background()
 		startKey := map[string]types.AttributeValue{
 			"id": &types.AttributeValueMemberS{Value: "test-id"},
@@ -397,19 +511,25 @@ func TestUpdateStrategies(t *testing.T) {
 		table.Options.Tick = func() time.Time { return now }
 
 		update := UpdateDataAttributes{
-			Attributes: []string{"name", "age"},
+			Attributes: []string{"name", "age", "foo"},
 			Updates: map[string]UpdateAttributeFunc{
 				"name": func(update expression.UpdateBuilder) expression.UpdateBuilder {
-					return update.Set(table.DataAttribute("name").Name(), expression.Value("new-name"))
+					return update.Set(table.DataAttribute("name").NameBuilder(), expression.Value("new-name"))
 				},
 				"age": func(update expression.UpdateBuilder) expression.UpdateBuilder {
-					return update.Set(table.DataAttribute("age").Name(), expression.Value(30))
+					return update.Set(table.DataAttribute("age").NameBuilder(), expression.Value(30))
 				},
 			},
 		}
 
 		updateOp := table.Update(TestData{ID: "test-id"}, update)
-		require.NotNil(t, updateOp)
+		assert.NotNil(t, updateOp)
+
+		client := &MockDynamoClient{}
+		client.On("UpdateItem", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.UpdateItemOutput{}, nil)
+		out, err := updateOp.Execute(context.TODO(), client)
+		assert.NoError(t, err)
+		assert.NotNil(t, out)
 	})
 
 	t.Run("Update with invalid strategy panics", func(t *testing.T) {
@@ -438,8 +558,9 @@ func TestErrorHandling(t *testing.T) {
 		}
 
 		table := New[TestData]("test-table")
-		queryOp := table.Query(query)
-		assert.NotNil(t, queryOp)
+		assert.Panics(t, func() {
+			table.Query(query)
+		})
 	})
 }
 
@@ -466,7 +587,7 @@ func TestExpressionBuilders(t *testing.T) {
 			sortKeyEquals("")
 		})
 
-		assert.Panics(t, func() {
+		assert.NotPanics(t, func() {
 			sortKeyStartsWith("")
 		})
 	})
@@ -570,6 +691,9 @@ func TestOperationsExecution(t *testing.T) {
 			QueryOptions: QueryOptions{
 				PartitionKeyValue: "test-id",
 				SortKeyPrefix:     "data#",
+				Cursor:            "token",
+				Filter:            expression.Equal(expression.Name("name"), expression.Value("value")),
+				StartKeyProvider:  new(MockPaginator).ReturnsStartKey(ezddb.Item{}).ReturnsToken("token"),
 			},
 		})
 
@@ -730,13 +854,21 @@ func TestQueryStrategies(t *testing.T) {
 				CreatedAfter:      start,
 				CreatedBefore:     end,
 				Limit:             20,
+				Filter:            expression.Equal(expression.Name("test"), expression.Value("123")),
+				Cursor:            "page-token",
+				StartKeyProvider:  new(MockPaginator).ReturnsStartKey(ezddb.Item{}).ReturnsToken("123"),
 			},
 		}
 
 		queryOp := table.Query(query)
-		require.NotNil(t, queryOp)
-
+		assert.NotNil(t, queryOp)
 		assert.Equal(t, "collection-query-index", table.Options.CollectionQueryIndexName)
+
+		client := &MockDynamoClient{}
+		client.On("Query", mock.Anything, mock.Anything, mock.Anything).Return(&dynamodb.QueryOutput{}, nil)
+		out, err := queryOp.Execute(context.Background(), client)
+		assert.NoError(t, err)
+		assert.NotNil(t, out)
 	})
 
 	t.Run("LookupQuery uses exact keys", func(t *testing.T) {
@@ -745,6 +877,8 @@ func TestQueryStrategies(t *testing.T) {
 			QueryOptions: QueryOptions{
 				PartitionKeyValue: "test#123",
 				SortKeyPrefix:     "data#456",
+				Filter:            expression.Equal(expression.Name("test"), expression.Value("123")),
+				Cursor:            "page-token",
 			},
 		}
 
