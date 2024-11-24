@@ -40,7 +40,7 @@ func (c Customer) EntityRelationships() map[string]entity.Relationship {
 
 func (c Customer) EntityRef(name string) []entity.Data {
 	if name == "customer-order" {
-		return entity.DataSlice(c.Orders...)
+		return entity.Ref(c.Orders...)
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func (o Order) EntityRelationships() map[string]entity.Relationship {
 
 func (o Order) EntityRef(name string) []entity.Data {
 	if name == "customer-order" {
-		return entity.DataSlice(o.Customer)
+		return entity.Ref(o.Customer)
 	}
 	return nil
 }

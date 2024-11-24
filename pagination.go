@@ -6,16 +6,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+// StartKey is the last dynamodb item that was retrieved in a query.
+// Used by DynamoDB to retrieve the next page if provided as the
+// start key in a Query or Scan request.
 type StartKey = map[string]types.AttributeValue
 
 // StartKeyTokenProvider provides a method for converting a dynamodb
 // evaluated start key into an opaque token.
 type StartKeyTokenProvider interface {
-	// GetStartKeyToken gets the opaque token from the provided start key.
+	// GetStartKeyToken gets the opaque token from the provided [StartKey].
 	GetStartKeyToken(context.Context, StartKey) (string, error)
 }
 
-// GetStartKeyToken gets the opaque token from the provided start key.
+// GetStartKeyToken gets the opaque token from the provided [StartKey].
 // If the start key is nil, an empty string is returned.
 func GetStartKeyToken(ctx context.Context, provider StartKeyTokenProvider, startKey StartKey) (string, error) {
 	if startKey == nil {
@@ -25,7 +28,7 @@ func GetStartKeyToken(ctx context.Context, provider StartKeyTokenProvider, start
 }
 
 // StartKeyProvider provides a method for converting an opaque
-// token to a start key used in dynamodb pagination.
+// token to a [StartKey] used for dynamodb pagination.
 type StartKeyProvider interface {
 	// GetStartKey gets the start key from the provided token.
 	GetStartKey(ctx context.Context, token string) (StartKey, error)

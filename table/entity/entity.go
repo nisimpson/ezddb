@@ -56,9 +56,9 @@ type DataWithRelationships interface {
 	EntityRef(name string) []Data
 }
 
-// DataSlice returns a slice of [Data], serving as a helper function for creating
+// Ref returns a slice of [Data], serving as a helper function for creating
 // and return the correct data type for [DataWithRelationships.EntityRelationship].
-func DataSlice[T Data](s ...T) []Data {
+func Ref[T Data](s ...T) []Data {
 	arr := make([]Data, len(s))
 	for i, v := range s {
 		arr[i] = v
